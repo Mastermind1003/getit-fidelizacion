@@ -1,0 +1,12 @@
+{
+  "name": "getit-fidelizacion",
+  "version": "1.0.0",
+  "description": "Sistema de fidelización digital GETit",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
