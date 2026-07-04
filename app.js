@@ -408,22 +408,26 @@ function generateUniqueShortCode() {
 
 async function createCustomer(req, res) {
   const body = await readBody(req);
-  const { rut, first_name, last_name, birth_date, email, whatsapp_number, program_id } = body;
+  const { rut, first_name, last_name, birth_date, email, whatsapp_number, program_id, boleta, marcas } = body;
 
-  if (!rut || !first_name || !last_name || !birth_date || !email) {
-    return sendJSON(res, 400, { error: 'Faltan campos obligatorios: rut, first_name, last_name, birth_date, email' });
+  if (!rut || !first_name || !birth_date) {
+    return sendJSON(res, 400, { error: 'Faltan campos obligatorios: rut, first_name, birth_date' });
   }
 
   const cleanRut = rut.trim().toUpperCase();
   if (!isValidRut(cleanRut)) {
-    return sendJSON(res, 400, { error: 'RUT inválido. Formato esperado: 12345678-9 (sin puntos, con guión y dígito verificador correcto).' });
+    return sendJSON(res, 400, { error: 'RUT inválido. Formato esperado: 12345678-9 (sin puntos, con guión).' });
   }
+
+  // Email autogenerado si no se proporciona
+  const cleanEmail = email || (cleanRut.replace(/[^0-9kK]/g, '').toLowerCase() + '@getit.cl');
+  const numMarcas = Math.min(parseInt(marcas, 10) || 1, 10);
 
   try {
     const result = db.prepare(`
       INSERT INTO customers (rut, first_name, last_name, birth_date, email, whatsapp_number)
       VALUES (?,?,?,?,?,?)
-    `).run(cleanRut, first_name, last_name, birth_date, email, whatsapp_number || null);
+    `).run(cleanRut, first_name, last_name || '-', birth_date, cleanEmail, whatsapp_number || null);
 
     const customerId = Number(result.lastInsertRowid);
     const programId = program_id || 1;
@@ -432,11 +436,26 @@ async function createCustomer(req, res) {
 
     const cardResult = db.prepare(`
       INSERT INTO loyalty_cards (customer_id, program_id, unique_token, short_code, current_stamps, status)
-      VALUES (?,?,?,?,0,'active')
-    `).run(customerId, programId, token, shortCode);
+      VALUES (?,?,?,?,?,'active')
+    `).run(customerId, programId, token, shortCode, numMarcas);
 
-    logAudit(null, 'create', 'customer', customerId, null, { first_name, last_name, email });
-    logAudit(null, 'create', 'loyalty_card', Number(cardResult.lastInsertRowid), null, { token, shortCode });
+    const cardId = Number(cardResult.lastInsertRowid);
+
+    // Si viene boleta del registro, la guardamos como compra y asignamos las marcas
+    if (boleta) {
+      try {
+        const pResult = db.prepare(`
+          INSERT INTO purchases (customer_id, branch_id, receipt_number, amount, created_by_staff_id)
+          VALUES (?,?,?,?,?)
+        `).run(customerId, 1, String(boleta), 0, null);
+        for (let i = 0; i < numMarcas; i++) {
+          db.prepare(`INSERT INTO stamp_events (loyalty_card_id, purchase_id, staff_id, branch_id, type)
+                      VALUES (?,?,?,?,'grant')`).run(cardId, Number(pResult.lastInsertRowid), null, 1);
+        }
+      } catch (e) { /* boleta duplicada, se ignora */ }
+    }
+
+    logAudit(null, 'create', 'customer', customerId, null, { first_name, last_name, boleta, marcas: numMarcas });
 
     const link = `/tarjeta/${token}`;
     db.prepare(`INSERT INTO notifications_log (customer_id, channel, message_type, content)
@@ -446,11 +465,11 @@ async function createCustomer(req, res) {
       customer_id: customerId,
       card_token: token,
       wallet_link: link,
-      message: 'Cliente registrado. Link generado (simulación de envío por WhatsApp, ver notifications_log).'
+      message: 'Cliente registrado con ' + numMarcas + ' marca(s).'
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
-      return sendJSON(res, 409, { error: 'RUT, email o número de WhatsApp ya registrado.' });
+      return sendJSON(res, 409, { error: 'RUT ya registrado. Búscalo en caja para agregar marcas.' });
     }
     sendJSON(res, 500, { error: err.message });
   }
@@ -2073,66 +2092,92 @@ function renderRegisterPage(req, res) {
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Registrar cliente</title>
 <style>
+  *{box-sizing:border-box;}
   body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;}
-  .panel{max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+  .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+  h2{margin-top:0;font-size:20px;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
-  input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
-  button{margin-top:20px;width:100%;padding:12px;background:#16321f;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;}
-  h2{margin-top:0;}
-  .hint{font-size:12px;color:#888;margin-top:3px;}
-  .result{margin-top:18px;padding:14px;border-radius:8px;font-size:14px;}
-  .ok{background:#e6f4ea;color:#16321f;}
-  .err{background:#fdeaea;color:#a01818;}
-  .result a{color:#16321f;font-weight:600;word-break:break-all;}
+  input{width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;font-size:15px;}
+  input:focus{outline:none;border-color:#16321f;}
+  .hint{font-size:11px;color:#aaa;margin-top:3px;}
+  button{margin-top:20px;width:100%;padding:13px;background:#16321f;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;}
+  .result{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;display:none;}
+  .ok{background:#e6f4ea;color:#16321f;display:block;}
+  .err{background:#fdeaea;color:#a01818;display:block;}
+  .card-link{margin-top:10px;word-break:break-all;}
+  .card-link a{color:#16321f;font-weight:600;}
+  .topbar{max-width:440px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#555;}
+  .topbar a{color:#16321f;font-weight:600;text-decoration:none;font-size:13px;}
 </style></head>
 <body>
+<div class="topbar">
+  <span>Registro de cliente</span>
+  <a href="/caja">← Volver a caja</a>
+</div>
 <div class="panel">
-  <h2>Registrar nuevo cliente</h2>
-  <form id="form">
-    <label>RUT (sin puntos, con guión)</label>
-    <input name="rut" placeholder="12345678-5" required>
-    <div class="hint">Formato: número-dígito verificador</div>
+  <h2>Nuevo cliente</h2>
+  <form id="form" autocomplete="off">
+    <label>RUT</label>
+    <input name="rut" placeholder="12345678-5" required autofocus>
+    <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
 
-    <label>Nombre</label>
-    <input name="first_name" required>
-
-    <label>Apellido</label>
-    <input name="last_name" required>
+    <label>Nombre y Apellido</label>
+    <input name="nombre_completo" placeholder="Juan Pérez" required>
 
     <label>Fecha de nacimiento</label>
     <input name="birth_date" type="date" required>
 
-    <label>Correo electrónico</label>
-    <input name="email" type="email" required>
+    <label>N° de Boleta</label>
+    <input name="boleta" placeholder="9642630" required>
+    <div class="hint">Número de la boleta de esta visita</div>
 
-    <label>WhatsApp (opcional, formato +56912345678)</label>
-    <input name="whatsapp_number" placeholder="+56912345678">
+    <label>Cantidad de marcas</label>
+    <input name="marcas" type="number" min="1" max="10" value="1" required>
+    <div class="hint">Normalmente 1 por visita</div>
 
-    <button type="submit">Registrar y generar tarjeta</button>
-    <p style="text-align:center;margin-top:14px;font-size:13px;color:#888;">¿Ya tienes tarjeta? <a href="/mi-tarjeta" style="color:#16321f;font-weight:600;">Ver mi tarjeta</a></p>
+    <button type="submit">Registrar cliente</button>
   </form>
-  <div id="result"></div>
+  <div id="result" class="result"></div>
 </div>
 <script>
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = {
-    rut: f.rut.value.trim(),
-    first_name: f.first_name.value.trim(),
-    last_name: f.last_name.value.trim(),
-    birth_date: f.birth_date.value,
-    email: f.email.value.trim(),
-    whatsapp_number: f.whatsapp_number.value.trim() || undefined
-  };
-  const r = await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await r.json();
+  const nombreCompleto = f.nombre_completo.value.trim();
+  const partes = nombreCompleto.split(' ');
+  const firstName = partes[0] || nombreCompleto;
+  const lastName = partes.slice(1).join(' ') || '-';
+  const marcas = parseInt(f.marcas.value, 10) || 1;
+  const boleta = f.boleta.value.trim();
+  const rut = f.rut.value.trim();
+
   const div = document.getElementById('result');
+  div.className = 'result';
+  div.innerHTML = 'Registrando...';
+  div.style.display = 'block';
+
+  const r = await fetch('/api/customers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      rut,
+      first_name: firstName,
+      last_name: lastName,
+      birth_date: f.birth_date.value,
+      email: rut.replace(/[^0-9kK]/g,'').toLowerCase() + '@getit.cl',
+      boleta,
+      marcas
+    })
+  });
+  const data = await r.json();
+
   if (r.ok) {
     const link = window.location.origin + data.wallet_link;
     div.className = 'result ok';
-    div.innerHTML = '¡Cliente registrado! Su tarjeta:<br><a href="' + link + '" target="_blank">' + link + '</a>';
+    div.innerHTML = '✓ Cliente registrado con ' + marcas + ' marca(s).<div class="card-link">Tarjeta: <a href="' + link + '" target="_blank">Ver tarjeta</a></div>';
     f.reset();
+    document.querySelector('[name=marcas]').value = '1';
+    document.querySelector('[name=rut]').focus();
   } else {
     div.className = 'result err';
     div.textContent = data.error || 'Error al registrar.';
@@ -2177,6 +2222,7 @@ async function renderCajaPage(req, res) {
   <span>Sesión: ${staff.name} (${staff.role === 'admin' ? 'administrador' : 'cajero'})</span>
   <div style="display:flex;gap:8px;">
     ${staff.role === 'admin' ? '<button onclick="window.location.href=\'/admin\'">Admin</button>' : ''}
+    <button onclick="window.location.href='/registro'">+ Registrar cliente</button>
     <button onclick="logout()">Cerrar sesión</button>
   </div>
 </div>
