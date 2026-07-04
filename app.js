@@ -2166,10 +2166,11 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const data = await r.json();
 
   if (r.ok) {
+    const link = window.location.origin + data.wallet_link;
     div.className = 'result ok';
-    div.innerHTML = '✓ Cliente registrado correctamente.';
+    div.innerHTML = '✓ Registro exitoso. Abriendo tu tarjeta...';
+    setTimeout(() => { window.location.href = link; }, 1200);
     f.reset();
-    document.querySelector('[name=rut]').focus();
     document.querySelector('[name=rut]').focus();
   } else {
     div.className = 'result err';
