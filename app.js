@@ -436,24 +436,10 @@ async function createCustomer(req, res) {
 
     const cardResult = db.prepare(`
       INSERT INTO loyalty_cards (customer_id, program_id, unique_token, short_code, current_stamps, status)
-      VALUES (?,?,?,?,?,'active')
-    `).run(customerId, programId, token, shortCode, numMarcas);
+      VALUES (?,?,?,?,0,'active')
+    `).run(customerId, programId, token, shortCode);
 
     const cardId = Number(cardResult.lastInsertRowid);
-
-    // Si viene boleta del registro, la guardamos como compra y asignamos las marcas
-    if (boleta) {
-      try {
-        const pResult = db.prepare(`
-          INSERT INTO purchases (customer_id, branch_id, receipt_number, amount, created_by_staff_id)
-          VALUES (?,?,?,?,?)
-        `).run(customerId, 1, String(boleta), 0, null);
-        for (let i = 0; i < numMarcas; i++) {
-          db.prepare(`INSERT INTO stamp_events (loyalty_card_id, purchase_id, staff_id, branch_id, type)
-                      VALUES (?,?,?,?,'grant')`).run(cardId, Number(pResult.lastInsertRowid), null, 1);
-        }
-      } catch (e) { /* boleta duplicada, se ignora */ }
-    }
 
     logAudit(null, 'create', 'customer', customerId, null, { first_name, last_name, boleta, marcas: numMarcas });
 
