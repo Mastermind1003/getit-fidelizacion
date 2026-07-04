@@ -2131,10 +2131,6 @@ function renderRegisterPage(req, res) {
     <input name="boleta" placeholder="9642630" required>
     <div class="hint">Número de la boleta de esta visita</div>
 
-    <label>Cantidad de marcas</label>
-    <input name="marcas" type="number" min="1" max="10" value="1" required>
-    <div class="hint">Normalmente 1 por visita</div>
-
     <button type="submit">Registrar cliente</button>
   </form>
   <div id="result" class="result"></div>
@@ -2147,7 +2143,6 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const partes = nombreCompleto.split(' ');
   const firstName = partes[0] || nombreCompleto;
   const lastName = partes.slice(1).join(' ') || '-';
-  const marcas = parseInt(f.marcas.value, 10) || 1;
   const boleta = f.boleta.value.trim();
   const rut = f.rut.value.trim();
 
@@ -2166,7 +2161,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
       birth_date: f.birth_date.value,
       email: rut.replace(/[^0-9kK]/g,'').toLowerCase() + '@getit.cl',
       boleta,
-      marcas
+      marcas: 1
     })
   });
   const data = await r.json();
@@ -2174,9 +2169,9 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   if (r.ok) {
     const link = window.location.origin + data.wallet_link;
     div.className = 'result ok';
-    div.innerHTML = '✓ Cliente registrado con ' + marcas + ' marca(s).<div class="card-link">Tarjeta: <a href="' + link + '" target="_blank">Ver tarjeta</a></div>';
+    div.innerHTML = '✓ Cliente registrado.<div class="card-link">Tarjeta: <a href="' + link + '" target="_blank">Ver tarjeta</a></div>';
     f.reset();
-    document.querySelector('[name=marcas]').value = '1';
+    document.querySelector('[name=rut]').focus();
     document.querySelector('[name=rut]').focus();
   } else {
     div.className = 'result err';
