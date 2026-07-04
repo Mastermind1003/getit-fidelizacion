@@ -419,7 +419,7 @@ async function createCustomer(req, res) {
     return sendJSON(res, 400, { error: 'RUT inválido. Formato esperado: 12345678-9 (sin puntos, con guión).' });
   }
 
-  // Email autogenerado si no se proporciona
+  // Email autogenerado si no se proporciona (compatibilidad con importaciones masivas)
   const cleanEmail = email || (cleanRut.replace(/[^0-9kK]/g, '').toLowerCase() + '@getit.cl');
   const numMarcas = Math.min(parseInt(marcas, 10) || 1, 10);
 
@@ -2121,15 +2121,17 @@ function renderRegisterPage(req, res) {
     <input name="rut" placeholder="12345678-5" required autofocus>
     <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
 
-    <label>Nombre y Apellido</label>
-    <input name="nombre_completo" placeholder="Juan Pérez" required>
+    <label>Nombre</label>
+    <input name="first_name" placeholder="Juan" required>
+
+    <label>Apellido</label>
+    <input name="last_name" placeholder="Pérez" required>
 
     <label>Fecha de nacimiento</label>
     <input name="birth_date" type="date" required>
 
-    <label>N° de Boleta</label>
-    <input name="boleta" placeholder="9642630" required>
-    <div class="hint">Número de la boleta de esta visita</div>
+    <label>Correo electrónico</label>
+    <input name="email" type="email" placeholder="juan@correo.com" required>
 
     <button type="submit">Registrar cliente</button>
   </form>
@@ -2139,12 +2141,10 @@ function renderRegisterPage(req, res) {
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const nombreCompleto = f.nombre_completo.value.trim();
-  const partes = nombreCompleto.split(' ');
-  const firstName = partes[0] || nombreCompleto;
-  const lastName = partes.slice(1).join(' ') || '-';
-  const boleta = f.boleta.value.trim();
   const rut = f.rut.value.trim();
+  const firstName = f.first_name.value.trim();
+  const lastName = f.last_name.value.trim();
+  const email = f.email.value.trim();
 
   const div = document.getElementById('result');
   div.className = 'result';
@@ -2159,17 +2159,15 @@ document.getElementById('form').addEventListener('submit', async (e) => {
       first_name: firstName,
       last_name: lastName,
       birth_date: f.birth_date.value,
-      email: rut.replace(/[^0-9kK]/g,'').toLowerCase() + '@getit.cl',
-      boleta,
-      marcas: 1
+      email,
+      marcas: 0
     })
   });
   const data = await r.json();
 
   if (r.ok) {
-    const link = window.location.origin + data.wallet_link;
     div.className = 'result ok';
-    div.innerHTML = '✓ Cliente registrado.<div class="card-link">Tarjeta: <a href="' + link + '" target="_blank">Ver tarjeta</a></div>';
+    div.innerHTML = '✓ Cliente registrado correctamente.';
     f.reset();
     document.querySelector('[name=rut]').focus();
     document.querySelector('[name=rut]').focus();
