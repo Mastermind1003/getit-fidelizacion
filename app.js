@@ -1,14 +1,9 @@
-// ============================================================
-// Tarjeta de Fidelización - Aplicación autocontenida (un solo archivo)
-// Ejecutar con: node app.js   (o doble clic en iniciar.bat / iniciar.command)
-// ============================================================
 const http = require('http');
 const crypto = require('crypto');
 const url = require('url');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
-// ---------- utils/rut.js ----------
 // Valida RUT chileno en formato "12345678-9" (sin puntos, con guión)
 function isValidRut(rut) {
   if (typeof rut !== 'string') return false;
@@ -35,7 +30,6 @@ function isValidRut(rut) {
 }
 
 
-// ---------- db/database.js ----------
 
 
 const DB_FILE_PATH = path.join(__dirname, 'loyalty.db');
@@ -275,7 +269,6 @@ ensureStaffUser('adm2026', '12345678', 'Administrador', 'admin');
 ensureStaffUser('tienda_1', '1234', 'Cajero Tienda 1', 'cashier');
 
 
-// ---------- index.js (servidor) ----------
 const fs = require('fs');
 
 // QRCode es opcional: en producción (servidor con internet) se instala con
@@ -299,14 +292,8 @@ function getLanIp() {
   }
   return 'localhost';
 }
-
-// En Render y otros hostings, se define la variable de entorno RENDER_EXTERNAL_URL o APP_URL
-// En desarrollo local, se usa la IP de la red WiFi para que el celular pueda escanear el QR
-const IS_PRODUCTION = !!(process.env.RENDER || process.env.APP_URL);
 const LAN_IP = getLanIp();
-const BASE_URL = process.env.APP_URL
-  || (process.env.RENDER_EXTERNAL_URL)
-  || `http://${LAN_IP}:${PORT}`;
+const BASE_URL = `http://${LAN_IP}:${PORT}`;
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 horas
 
 // ---------- Autenticación ----------
@@ -1945,9 +1932,7 @@ async function renderCardPage(req, res, token) {
     const qrDataUrl = await QRCode.toDataURL(cardUrl, { width: 280, margin: 1 });
     qrHtml = `<img src="${qrDataUrl}" alt="QR">`;
   } else {
-    // Respaldo sin la librería qrcode instalada: muestra el token en texto.
-    // En el servidor real (con `npm install qrcode`) esto se reemplaza por el QR de verdad.
-    qrHtml = `<div style="font-family:monospace; word-break:break-all; padding:20px; color:#000;">${card.unique_token}</div>`;
+    qrHtml = `<div style="padding:24px 16px;text-align:center;color:#888;font-size:13px;line-height:1.6;">QR no disponible en este entorno.<br>Usa el código de abajo para identificarte en caja.</div>`;
   }
 
   let grid = '';
@@ -2004,6 +1989,84 @@ async function renderCardPage(req, res, token) {
 </html>`);
 }
 
+function buscarTarjetaPorRut(req, res, rut) {
+  const cleanRut = rut.trim().toUpperCase();
+  const customer = db.prepare('SELECT * FROM customers WHERE rut = ?').get(cleanRut);
+  if (!customer) return sendJSON(res, 404, { error: 'No encontramos ningún cliente con ese RUT. Verifica que esté escrito sin puntos y con guión (ej: 12345678-5).' });
+  const card = db.prepare(`
+    SELECT lc.*, lp.name as program_name, lp.required_stamps, lp.primary_color, lp.secondary_color
+    FROM loyalty_cards lc JOIN loyalty_programs lp ON lp.id = lc.program_id
+    WHERE lc.customer_id = ? ORDER BY lc.id DESC LIMIT 1
+  `).get(customer.id);
+  if (!card) return sendJSON(res, 404, { error: 'Este cliente no tiene tarjeta activa.' });
+  sendJSON(res, 200, { token: card.unique_token });
+}
+
+function renderMiTarjetaPage(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ver mi tarjeta</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .panel{background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;width:100%;box-shadow:0 2px 12px rgba(0,0,0,0.1);}
+  h1{font-size:22px;margin-bottom:6px;color:#16321f;}
+  p{font-size:14px;color:#666;margin-bottom:24px;line-height:1.5;}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#333;}
+  input{width:100%;padding:12px;border:1.5px solid #ddd;border-radius:8px;font-size:16px;transition:border-color .2s;}
+  input:focus{outline:none;border-color:#16321f;}
+  button{width:100%;margin-top:14px;padding:13px;background:#16321f;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;}
+  button:active{opacity:0.9;}
+  .err{margin-top:14px;padding:12px;border-radius:8px;background:#fdeaea;color:#a01818;font-size:14px;display:none;}
+  .hint{margin-top:12px;font-size:12px;color:#999;text-align:center;}
+  .logo{text-align:center;margin-bottom:20px;font-size:28px;font-weight:800;color:#16321f;letter-spacing:-1px;}
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="logo">GETit</div>
+  <h1>Ver mi tarjeta</h1>
+  <p>Ingresa tu RUT para acceder a tu tarjeta de fidelización y ver tus marcas acumuladas.</p>
+  <label>RUT (sin puntos, con guión)</label>
+  <input type="text" id="rutInput" placeholder="12345678-5" autofocus>
+  <button onclick="buscar()">Ver mi tarjeta</button>
+  <div class="err" id="errMsg"></div>
+  <p class="hint">¿Aún no estás registrado? <a href="/registro" style="color:#16321f;">Regístrate aquí</a></p>
+</div>
+<script>
+document.getElementById('rutInput').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') buscar();
+});
+
+async function buscar() {
+  const rut = document.getElementById('rutInput').value.trim();
+  const err = document.getElementById('errMsg');
+  err.style.display = 'none';
+  if (!rut) { err.textContent = 'Por favor ingresa tu RUT.'; err.style.display = 'block'; return; }
+
+  const btn = document.querySelector('button');
+  btn.textContent = 'Buscando...';
+  btn.disabled = true;
+
+  const r = await fetch('/api/buscar-tarjeta/' + encodeURIComponent(rut));
+  const data = await r.json();
+  btn.textContent = 'Ver mi tarjeta';
+  btn.disabled = false;
+
+  if (r.ok) {
+    window.location.href = '/tarjeta/' + data.token;
+  } else {
+    err.textContent = data.error || 'Error al buscar.';
+    err.style.display = 'block';
+  }
+}
+</script>
+</body></html>`);
+}
+
 function renderRegisterPage(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
@@ -2046,6 +2109,7 @@ function renderRegisterPage(req, res) {
     <input name="whatsapp_number" placeholder="+56912345678">
 
     <button type="submit">Registrar y generar tarjeta</button>
+    <p style="text-align:center;margin-top:14px;font-size:13px;color:#888;">¿Ya tienes tarjeta? <a href="/mi-tarjeta" style="color:#16321f;font-weight:600;">Ver mi tarjeta</a></p>
   </form>
   <div id="result"></div>
 </div>
@@ -2306,6 +2370,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName === '/manifest.json') return renderManifest(req, res);
     if (req.method === 'GET' && pathName === '/admin') return renderAdminPage(req, res);
     if (req.method === 'GET' && pathName === '/registro') return renderRegisterPage(req, res);
+    if (req.method === 'GET' && pathName === '/mi-tarjeta') return renderMiTarjetaPage(req, res);
+    if (req.method === 'GET' && pathName.match(/^\/api\/buscar-tarjeta\/.+$/)) return buscarTarjetaPorRut(req, res, decodeURIComponent(pathName.split('/api/buscar-tarjeta/')[1]));
     if (req.method === 'GET' && pathName === '/caja') return await renderCajaPage(req, res);
     if (req.method === 'POST' && pathName === '/api/auth/login') return await loginStaff(req, res);
     if (req.method === 'POST' && pathName === '/api/auth/logout') return logoutStaff(req, res);
@@ -2340,22 +2406,17 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
-  if (IS_PRODUCTION) {
-    console.log(`URL pública: ${BASE_URL}`);
-    console.log(`Panel de administración: ${BASE_URL}/admin`);
-  } else {
-    console.log(`Acceso desde celular en la misma red WiFi: ${BASE_URL}`);
-    console.log(`Panel de administración: http://localhost:${PORT}/admin`);
-    console.log(`Registrar cliente: http://localhost:${PORT}/registro`);
-    console.log(`Caja: http://localhost:${PORT}/caja`);
-    console.log(`Cartel QR para mesón: http://localhost:${PORT}/cartel-qr`);
-    const { exec } = require('child_process');
-    const target = `http://localhost:${PORT}/admin`;
-    const opener = process.platform === 'win32' ? `start ${target}`
-      : process.platform === 'darwin' ? `open ${target}`
-      : `xdg-open ${target}`;
-    exec(opener, () => {});
-  }
+  console.log(`Acceso desde celular en la misma red WiFi: ${BASE_URL}`);
+  console.log(`Panel de administración: http://localhost:${PORT}/admin`);
+  console.log(`Registrar cliente: http://localhost:${PORT}/registro`);
+  console.log(`Caja: http://localhost:${PORT}/caja`);
+  console.log(`Cartel QR para mesón: http://localhost:${PORT}/cartel-qr`);
+  const { exec } = require('child_process');
+  const target = `http://localhost:${PORT}/admin`;
+  const opener = process.platform === 'win32' ? `start ${target}`
+    : process.platform === 'darwin' ? `open ${target}`
+    : `xdg-open ${target}`;
+  exec(opener, () => {});
 });
 
 module.exports = server;
