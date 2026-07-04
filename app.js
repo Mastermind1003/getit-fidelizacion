@@ -242,9 +242,11 @@ for (const c of cardsWithoutCode) {
 const branchCount = db.prepare('SELECT COUNT(*) c FROM branches').get().c;
 if (branchCount === 0) {
   db.prepare('INSERT INTO branches (name, address) VALUES (?, ?)').run('Sucursal Centro', 'Av. Principal 123');
-  db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, primary_color, secondary_color, stamp_icon)
-              VALUES (?,?,?,?,?,?,?)`)
-    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }), '', '#16321f', '#0f1115', '★');
+  db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, logo_width, primary_color, secondary_color, stamp_icon, stamp_color, stamp_size)
+              VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }),
+         'https://i.imgur.com/nJrUCee.png', 140,
+         '#000000', '#0f1115', '★', '#d62828', 22);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
     .run(1, 'Producto gratis', 'Premio al completar 10 marcas', 10);
 }
@@ -563,15 +565,13 @@ function listCustomersAdmin(req, res) {
   const staff = requireAdmin(req, res);
   if (!staff) return;
   const rows = db.prepare(`
-    SELECT c.id, c.rut, c.first_name, c.last_name, c.birth_date, c.email, c.whatsapp_number,
-           lc.id as card_id, lc.unique_token, lc.short_code, lc.current_stamps, lc.required_stamps, lc.status,
-           (SELECT COUNT(*) FROM stamp_events se WHERE se.loyalty_card_id = lc.id AND se.type = 'grant') as lifetime_stamps,
-           (SELECT COUNT(*) FROM reward_redemptions rr WHERE rr.loyalty_card_id = lc.id) as lifetime_redemptions,
-           (SELECT COUNT(*) FROM purchases p WHERE p.customer_id = c.id) as lifetime_purchases
+    SELECT c.id, c.rut, c.first_name, c.last_name, c.birth_date, c.email,
+           lc.current_stamps, lp.required_stamps, lc.status, lc.unique_token, lc.short_code,
+           (SELECT COUNT(*) FROM purchases p WHERE p.customer_id = c.id) as total_boletas,
+           (SELECT COUNT(*) FROM reward_redemptions rr JOIN loyalty_cards lc2 ON lc2.id = rr.loyalty_card_id WHERE lc2.customer_id = c.id) as premios
     FROM customers c
-    LEFT JOIN (
-      SELECT lc.*, lp.required_stamps FROM loyalty_cards lc JOIN loyalty_programs lp ON lp.id = lc.program_id
-    ) lc ON lc.customer_id = c.id
+    LEFT JOIN loyalty_cards lc ON lc.customer_id = c.id
+    LEFT JOIN loyalty_programs lp ON lp.id = lc.program_id
     ORDER BY c.id DESC
   `).all();
   sendJSON(res, 200, rows);
@@ -1090,45 +1090,58 @@ function renderAdminPage(req, res) {
     return renderLoginPage(res, '/admin', 'Acceso de administrador');
   }
   const programs = db.prepare('SELECT * FROM loyalty_programs').all();
-  const stats = getDashboardStats();
-  const analytics = getSalesAnalytics();
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin - Diseño de tarjeta</title>
+<title>Admin GETit</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
+  *{box-sizing:border-box;}
   body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;}
   .wrap{max-width:900px;margin:0 auto;}
-  .panel{display:flex;gap:24px;background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.1);margin-bottom:20px;flex-wrap:wrap;}
-  .formcol{flex:1;min-width:280px;}
-  .previewcol{width:280px;display:flex;flex-direction:column;align-items:center;}
-  label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
-  input[type=text],input[type=number],input[type=url]{width:100%;box-sizing:border-box;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:14px;}
-  button{margin-top:18px;width:100%;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+  .topbar{max-width:900px;margin:0 auto 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#555;}
+  .topbar .actions{display:flex;gap:8px;}
+  .topbar button{width:auto;margin:0;padding:7px 14px;background:#888;font-size:12px;color:#fff;border:none;border-radius:6px;cursor:pointer;}
+  .panel{background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,0.1);margin-bottom:20px;}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;}
+  .tabbtn{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;}
+  .tabbtn.active{background:#16321f;color:#fff;}
+  .tabbtn:not(.active){background:#ddd;color:#333;}
   h2{margin-top:0;}
-  .msg{font-size:13px;margin-top:10px;color:#16321f;}
+  label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
+  input[type=text],input[type=number],input[type=url]{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:14px;}
+  button{margin-top:18px;width:100%;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .btnrow button{width:auto;margin-top:0;padding:10px 16px;font-size:14px;}
+  .btn-excel{background:#0D8063;}
+  .btn-danger{background:#a01818;}
+  .msg{font-size:13px;margin-top:10px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:16px;}
+  th{text-align:left;padding:10px 8px;border-bottom:2px solid #eee;white-space:nowrap;}
+  td{padding:10px 8px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+  .actbtn{width:auto;margin:0 4px 0 0;padding:5px 10px;font-size:12px;background:#888;}
+  .delbtn{background:#a01818;}
   .colorrow{display:flex;gap:8px;align-items:center;margin-top:4px;}
   .colorrow input[type=color]{width:42px;height:36px;padding:2px;border:1px solid #ccc;border-radius:6px;cursor:pointer;}
   .colorrow input[type=text]{flex:1;}
-  .iconbtn{width:36px;height:36px;min-width:36px;margin-top:0;font-size:18px;border:1px solid #ccc;border-radius:6px;background:#fafafa;cursor:pointer;padding:0;line-height:1;color:#333;}
-  .iconbtn.active{border-color:#16321f;border-width:2px;background:#eef4ef;}
-  .iconrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .rangerow{display:flex;align-items:center;gap:10px;margin-top:4px;}
   .rangerow input[type=range]{flex:1;}
   .rangeval{font-size:13px;color:#666;width:50px;text-align:right;}
-  .preview-card{width:240px;border-radius:16px;padding:18px 14px;box-sizing:border-box;text-align:center;color:#fff;transition:background 0.15s;overflow:hidden;}
-  .preview-card img{display:block;margin:0 auto 10px;object-fit:contain;}
-  .preview-brand{font-size:15px;font-weight:700;margin-bottom:2px;}
-  .preview-name{font-size:12px;opacity:0.85;margin-bottom:10px;}
-  .preview-qr{background:#fff;border-radius:8px;width:100px;height:100px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:10px;}
-  .preview-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:8px;}
-  .preview-stamp{aspect-ratio:1;border-radius:50%;background:rgba(255,255,255,0.18);border:1.5px dashed rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;color:#fff;}
-  .preview-stamp.filled{border:1.5px solid transparent;}
-  .preview-label{font-size:11px;color:#999;margin-top:8px;}
-  .topbar{max-width:900px;margin:0 auto 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#555;}
-  .topbar .actions{display:flex;gap:8px;}
-  .topbar button{width:auto;margin:0;padding:7px 14px;background:#888;font-size:12px;}
+  .iconbtn{width:36px;height:36px;min-width:36px;margin-top:0;font-size:18px;border:1px solid #ccc;border-radius:6px;background:#fafafa;cursor:pointer;padding:0;color:#333;}
+  .iconbtn.active{border-color:#16321f;border-width:2px;background:#eef4ef;}
+  .iconrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .design-wrap{display:flex;gap:24px;flex-wrap:wrap;}
+  .formcol{flex:1;min-width:280px;}
+  .previewcol{width:220px;display:flex;flex-direction:column;align-items:center;}
+  .preview-card{width:200px;border-radius:14px;padding:14px;text-align:center;color:#fff;}
+  .preview-card img{display:block;margin:0 auto 8px;object-fit:contain;}
+  .preview-brand{font-size:13px;font-weight:700;margin-bottom:2px;}
+  .preview-qr{background:#fff;border-radius:8px;width:80px;height:80px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:10px;}
+  .preview-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:8px 0;}
+  .preview-stamp{aspect-ratio:1;border-radius:50%;background:rgba(255,255,255,0.15);border:1px dashed rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;}
+  .preview-stamp.filled{border:none;}
+  .preview-progress{font-size:11px;opacity:0.8;}
+  .overflow-x{overflow-x:auto;}
 </style></head>
 <body>
 <div class="topbar">
@@ -1139,787 +1152,259 @@ function renderAdminPage(req, res) {
   </div>
 </div>
 <div class="wrap">
-<div class="admintabs" style="display:flex;gap:8px;margin-bottom:18px;">
-  <button type="button" class="admintabbtn active" id="tabBtnDashboard" onclick="switchAdminTab('dashboard')" style="width:auto;margin:0;padding:10px 20px;background:#16321f;color:#fff;">Dashboard</button>
-  <button type="button" class="admintabbtn" id="tabBtnClientes" onclick="switchAdminTab('clientes')" style="width:auto;margin:0;padding:10px 20px;background:#ddd;color:#333;">Clientes</button>
-  <button type="button" class="admintabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')" style="width:auto;margin:0;padding:10px 20px;background:#ddd;color:#333;">Diseño de tarjeta</button>
-</div>
-
-<div class="panel" id="tabContentDashboard" style="display:block;">
-  <h2>Dashboard de análisis</h2>
-
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-    <button type="button" onclick="downloadExcel()" style="width:auto;background:#0D8063;">⬇ Descargar Excel completo</button>
-    <button type="button" onclick="window.location.href='/api/admin/download-db'" style="width:auto;background:#16321f;">⬇ Descargar base de datos (.db)</button>
-    <label style="width:auto;display:inline-flex;align-items:center;padding:10px 16px;background:#444;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;margin-top:18px;">
-      ⬆ Cargar registro de clientes (Excel)
-      <input type="file" id="fileRegistry" accept=".xlsx,.xls" style="display:none;" onchange="importRegistryFile(this)">
-    </label>
-    <label style="width:auto;display:inline-flex;align-items:center;padding:10px 16px;background:#444;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;margin-top:18px;">
-      ⬆ Cargar reporte de ventas (DTR-MOV)
-      <input type="file" id="fileSales" accept=".xlsx,.xls" style="display:none;" onchange="importSalesFile(this)">
-    </label>
-    <button type="button" onclick="clearSalesData()" style="width:auto;background:#a01818;margin-top:18px;">🗑 Borrar ventas cargadas</button>
-    <button type="button" onclick="clearRegistryData()" style="width:auto;background:#a01818;margin-top:18px;">🗑 Borrar registro de clientes</button>
+  <div class="tabs">
+    <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchTab('clientes')">Clientes</button>
+    <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchTab('diseno')">Diseño de tarjeta</button>
   </div>
-  <div id="importMsg" style="font-size:13px;margin-bottom:14px;"></div>
 
-  <div id="registryWrap" style="display:none;margin-bottom:28px;">
-    <h3>Registro de clientes (tal como tu planilla)</h3>
-    <div style="overflow-x:auto;max-height:400px;overflow-y:auto;border:1px solid #eee;border-radius:8px;">
-      <table style="width:100%;min-width:760px;border-collapse:collapse;font-size:13px;">
-        <thead style="position:sticky;top:0;background:#16321f;color:#fff;">
+  <!-- PESTAÑA CLIENTES -->
+  <div id="tabClientes" class="panel">
+    <h2>Clientes registrados</h2>
+    <div class="btnrow">
+      <button type="button" class="btn-excel" onclick="downloadExcel()">⬇ Descargar Excel</button>
+      <button type="button" onclick="window.location.href='/registro'">+ Registrar cliente</button>
+    </div>
+    <div class="overflow-x">
+      <table>
+        <thead>
           <tr>
-            <th style="padding:8px;text-align:left;">RUT</th>
-            <th style="padding:8px;text-align:left;">Nombre</th>
-            <th style="padding:8px;text-align:left;">FechaNac</th>
-            <th style="padding:8px;text-align:left;">Correo</th>
-            <th style="padding:8px;text-align:left;">Boleta</th>
-            <th style="padding:8px;text-align:left;">Stickers</th>
-            <th style="padding:8px;text-align:left;">DÍA</th>
-            <th style="padding:8px;text-align:left;">MES</th>
+            <th>RUT</th>
+            <th>Nombre Apellido</th>
+            <th>Fecha Nacimiento</th>
+            <th>Correo</th>
+            <th>N° Boletas</th>
+            <th>Cant. Boletas</th>
+            <th>Marcas</th>
+            <th>Acciones</th>
           </tr>
         </thead>
-        <tbody id="registryBody"></tbody>
+        <tbody id="custBody"></tbody>
       </table>
     </div>
+    <div id="detailPanel" style="display:none;margin-top:20px;border-top:2px solid #eee;padding-top:16px;"></div>
   </div>
 
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:10px;">
-    <div style="background:#f7f7f7;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#777;">Clientes fidelizados</div>
-      <div style="font-size:28px;font-weight:700;color:#16321f;">${stats.customers}</div>
-    </div>
-    <div style="background:#f7f7f7;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#777;">Tarjetas activas</div>
-      <div style="font-size:28px;font-weight:700;color:#16321f;">${stats.activeCards}</div>
-    </div>
-    <div style="background:#f7f7f7;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#777;">Tarjetas completadas</div>
-      <div style="font-size:28px;font-weight:700;color:#16321f;">${stats.completedCards}</div>
-    </div>
-    <div style="background:#f7f7f7;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#777;">Premios canjeados</div>
-      <div style="font-size:28px;font-weight:700;color:#16321f;">${stats.redemptions}</div>
-    </div>
-    <div style="background:#fff3e0;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#a05a00;">Total $ vendido a fidelizados</div>
-      <div style="font-size:24px;font-weight:700;color:#a05a00;">$${Math.round(analytics.totalSold).toLocaleString('es-CL')}</div>
-    </div>
-    <div style="background:#fff3e0;border-radius:10px;padding:16px;">
-      <div style="font-size:13px;color:#a05a00;">Ticket promedio</div>
-      <div style="font-size:24px;font-weight:700;color:#a05a00;">$${Math.round(analytics.ticketPromedio).toLocaleString('es-CL')}</div>
-    </div>
-  </div>
-
-  ${analytics.totalSalesRows === 0 ? `
-  <div style="margin-top:20px;padding:14px;background:#fdf6e3;border-radius:8px;font-size:13px;color:#7a5a00;">
-    Aún no has cargado tu reporte de ventas (DTR-MOV). Los datos de $ vendido, productos y horarios aparecerán aquí una vez que lo cargues con el botón de arriba.
-  </div>` : `
-  <div style="margin-top:20px;padding:10px 14px;background:#eef4ef;border-radius:8px;font-size:12px;color:#16321f;">
-    ${analytics.totalRegistryRows} registros de clientes cargados · ${analytics.totalSalesRows} filas de venta cargadas · ${analytics.matchedRows} cruzaron por N° de documento.
-  </div>`}
-
-  <h3 style="margin-top:28px;">Clientes con más compras ($ gastado real, según DTR-MOV)</h3>
-  <table style="width:100%;border-collapse:collapse;font-size:13px;">
-    <thead><tr style="text-align:left;border-bottom:2px solid #eee;">
-      <th style="padding:8px;">RUT</th><th style="padding:8px;">Nombre</th><th style="padding:8px;">N° Boletas</th><th style="padding:8px;">Total $</th>
-    </tr></thead>
-    <tbody>
-      ${analytics.perClient.filter(c => c.total_comprado > 0).slice(0, 15).map(c => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:8px;">${c.rut}</td><td style="padding:8px;">${c.nombre || ''}</td><td style="padding:8px;">${c.boletas}</td><td style="padding:8px;">$${Math.round(c.total_comprado).toLocaleString('es-CL')}</td></tr>`).join('') || '<tr><td colspan="4" style="padding:8px;color:#999;">Sin datos de venta cargados todavía.</td></tr>'}
-    </tbody>
-  </table>
-
-  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:28px;">
-    <div style="flex:1;min-width:280px;">
-      <h3>Productos más vendidos</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Producto</th><th style="padding:6px;">Cant.</th></tr></thead>
-        <tbody>${analytics.topProducts.map(p => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">${p.producto}</td><td style="padding:6px;">${p.cantidad_total}</td></tr>`).join('') || '<tr><td colspan="2" style="padding:6px;color:#999;">Sin datos.</td></tr>'}</tbody>
-      </table>
-    </div>
-    <div style="flex:1;min-width:280px;">
-      <h3>Productos menos vendidos</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Producto</th><th style="padding:6px;">Cant.</th></tr></thead>
-        <tbody>${analytics.bottomProducts.map(p => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">${p.producto}</td><td style="padding:6px;">${p.cantidad_total}</td></tr>`).join('') || '<tr><td colspan="2" style="padding:6px;color:#999;">Sin datos.</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-
-  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:28px;">
-    <div style="flex:1;min-width:280px;">
-      <h3>Ranking de cajeros (clientes fidelizados)</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Cajero</th><th style="padding:6px;">Clientes fidelizados</th></tr></thead>
-        <tbody>${analytics.cashierRanking.map(c => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">${c.cajero}</td><td style="padding:6px;">${c.clientes_fidelizados}</td></tr>`).join('') || '<tr><td colspan="2" style="padding:6px;color:#999;">Sin datos (carga la base de clientes con columna Cajero).</td></tr>'}</tbody>
-      </table>
-    </div>
-    <div style="flex:1;min-width:280px;">
-      <h3>Mejores horarios de compra</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Hora</th><th style="padding:6px;">Transacciones</th><th style="padding:6px;">Total $</th></tr></thead>
-        <tbody>${analytics.hourBrackets.map(h => `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">${h.hora_del_dia}:00</td><td style="padding:6px;">${h.transacciones}</td><td style="padding:6px;">$${Math.round(h.monto).toLocaleString('es-CL')}</td></tr>`).join('') || '<tr><td colspan="3" style="padding:6px;color:#999;">Sin datos.</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<div id="tabContentDiseno" style="display:none;">
-${programs.map(p => {
-  const icons = ['★','✦','✱','✓','✪'];
-  return `
-<div class="panel" id="panel-${p.id}">
-  <div class="formcol">
-    <h2>${p.name} (id ${p.id})</h2>
-    <form onsubmit="return saveProgram(event, ${p.id})" oninput="updatePreview(${p.id})">
-      <label>Nombre del programa</label>
-      <input type="text" name="name" value="${p.name}">
-
-      <label>Cantidad de marcas requeridas</label>
-      <input type="number" name="required_stamps" min="1" max="30" value="${p.required_stamps}">
-
-      <label>URL del logo (o pega un código data:image/...)</label>
-      <input type="text" name="logo_url" value="${p.logo_url || ''}" placeholder="https://.../logo.png">
-
-      <label>Tamaño del logo (máximo 140px)</label>
-      <div class="rangerow">
-        <input type="range" name="logo_width" min="50" max="140" value="${Math.min(p.logo_width || 140, 140)}" oninput="document.getElementById('logo-width-val-${p.id}').textContent=this.value+'px'">
-        <span class="rangeval" id="logo-width-val-${p.id}">${Math.min(p.logo_width || 140, 140)}px</span>
+  <!-- PESTAÑA DISEÑO -->
+  <div id="tabDiseno" style="display:none;">
+  ${programs.map(p => `
+  <div class="panel">
+    <div class="design-wrap">
+      <div class="formcol">
+        <h2>Diseño de tarjeta</h2>
+        <form onsubmit="saveProgram(event, ${p.id})">
+          <label>Nombre del programa</label>
+          <input type="text" name="name" value="${p.name || ''}" required>
+          <label>Cantidad de marcas requeridas</label>
+          <input type="number" name="required_stamps" value="${p.required_stamps || 10}" min="1" max="30" oninput="updatePreview(${p.id})">
+          <label>URL del logo</label>
+          <input type="url" name="logo_url" value="${p.logo_url || ''}" oninput="updatePreview(${p.id})">
+          <label>Tamaño del logo (máximo 140px)</label>
+          <div class="rangerow">
+            <input type="range" name="logo_width" min="50" max="140" value="${p.logo_width || 140}" oninput="syncRange(this,'logo_width_val_${p.id}');updatePreview(${p.id})">
+            <span class="rangeval" id="logo_width_val_${p.id}">${p.logo_width || 140}px</span>
+          </div>
+          <label>Color principal</label>
+          <div class="colorrow">
+            <input type="color" value="${p.primary_color || '#000000'}" oninput="syncColor(${p.id},'primary_color',this.value)">
+            <input type="text" name="primary_color" value="${p.primary_color || '#000000'}" oninput="syncColorFromText(${p.id},'primary_color',this.value)">
+          </div>
+          <label>Color secundario</label>
+          <div class="colorrow">
+            <input type="color" value="${p.secondary_color || '#0f1115'}" oninput="syncColor(${p.id},'secondary_color',this.value)">
+            <input type="text" name="secondary_color" value="${p.secondary_color || '#0f1115'}" oninput="syncColorFromText(${p.id},'secondary_color',this.value)">
+          </div>
+          <label>Ícono de marca</label>
+          <input type="text" id="stamp-icon-${p.id}" name="stamp_icon" value="${p.stamp_icon || '★'}" oninput="updatePreview(${p.id})">
+          <div class="iconrow">
+            ${['★','✦','✱','✓','✪'].map(ic => `<button type="button" class="iconbtn ${(p.stamp_icon||'★')===ic?'active':''}" onclick="document.getElementById('stamp-icon-${p.id}').value='${ic}';updatePreview(${p.id})">${ic}</button>`).join('')}
+          </div>
+          <label>Color de fondo del ícono (marca completada)</label>
+          <div class="colorrow">
+            <input type="color" value="${p.stamp_color || '#d62828'}" oninput="syncColor(${p.id},'stamp_color',this.value)">
+            <input type="text" name="stamp_color" value="${p.stamp_color || '#d62828'}" oninput="syncColorFromText(${p.id},'stamp_color',this.value)">
+          </div>
+          <label>Tamaño del ícono (máximo 25px)</label>
+          <div class="rangerow">
+            <input type="range" name="stamp_size" min="10" max="25" value="${p.stamp_size || 22}" oninput="syncRange(this,'stamp_size_val_${p.id}');updatePreview(${p.id})">
+            <span class="rangeval" id="stamp_size_val_${p.id}">${p.stamp_size || 22}px</span>
+          </div>
+          <button type="submit">Guardar diseño</button>
+          <div class="msg" id="msg-${p.id}"></div>
+        </form>
       </div>
-
-      <label>Color principal</label>
-      <div class="colorrow">
-        <input type="color" name="primary_color_picker" value="${p.primary_color}" oninput="syncColor(${p.id},'primary_color',this.value)">
-        <input type="text" name="primary_color" value="${p.primary_color}" placeholder="#0D8063" oninput="syncColorFromText(${p.id},'primary_color',this.value)">
+      <div class="previewcol">
+        <div class="preview-card" id="preview-card-${p.id}" style="background:${p.primary_color||'#000'};">
+          <img id="preview-logo-${p.id}" src="${p.logo_url||''}" style="width:min(${p.logo_width||140}px,80%);max-height:60px;object-fit:contain;display:${p.logo_url?'block':'none'};">
+          <div class="preview-brand" id="preview-brand-${p.id}">${p.name||''}</div>
+          <div class="preview-qr">QR</div>
+          <div class="preview-grid" id="preview-grid-${p.id}"></div>
+          <div class="preview-progress">VISITAS: 0 / ${p.required_stamps||10}</div>
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:8px;">Vista previa en vivo</div>
       </div>
-
-      <label>Color secundario</label>
-      <div class="colorrow">
-        <input type="color" name="secondary_color_picker" value="${p.secondary_color}" oninput="syncColor(${p.id},'secondary_color',this.value)">
-        <input type="text" name="secondary_color" value="${p.secondary_color}" placeholder="#EC8626" oninput="syncColorFromText(${p.id},'secondary_color',this.value)">
-      </div>
-
-      <label>Ícono de marca</label>
-      <input type="text" name="stamp_icon" id="stamp-icon-${p.id}" value="${p.stamp_icon}" oninput="markActiveIcon(${p.id})">
-      <div class="iconrow" id="iconrow-${p.id}">
-        ${icons.map(icon =>
-          `<button type="button" class="iconbtn${icon === p.stamp_icon ? ' active' : ''}" data-icon="${icon}" onclick="chooseIcon(${p.id}, this)">${icon}</button>`
-        ).join('')}
-      </div>
-
-      <label>Color de fondo del ícono (marca completada)</label>
-      <div class="colorrow">
-        <input type="color" name="stamp_color_picker" value="${p.stamp_color || '#d62828'}" oninput="syncColor(${p.id},'stamp_color',this.value)">
-        <input type="text" name="stamp_color" value="${p.stamp_color || '#d62828'}" placeholder="#d62828" oninput="syncColorFromText(${p.id},'stamp_color',this.value)">
-      </div>
-
-      <label>Tamaño del ícono (máximo 25px)</label>
-      <div class="rangerow">
-        <input type="range" name="stamp_size" min="10" max="25" value="${Math.min(p.stamp_size || 22, 25)}" oninput="document.getElementById('stamp-size-val-${p.id}').textContent=this.value+'px'">
-        <span class="rangeval" id="stamp-size-val-${p.id}">${Math.min(p.stamp_size || 22, 25)}px</span>
-      </div>
-
-      <button type="submit">Guardar diseño</button>
-      <div class="msg" id="msg-${p.id}"></div>
-    </form>
-  </div>
-
-  <div class="previewcol">
-    <div class="preview-card" id="preview-card-${p.id}" style="background:${p.primary_color};">
-      <img id="preview-logo-${p.id}" src="${p.logo_url || ''}" style="width:min(${p.logo_width || 200}px, 80%);max-height:75px;height:auto;display:${p.logo_url ? 'block' : 'none'};">
-      <div class="preview-brand" id="preview-brand-${p.id}">${p.name}</div>
-      <div class="preview-name">Nombre Apellido</div>
-      <div class="preview-qr">QR</div>
-      <div class="preview-grid" id="preview-grid-${p.id}"></div>
-      <div style="font-size:11px;opacity:0.8;">VISITAS: 0 / ${p.required_stamps}</div>
     </div>
-    <div class="preview-label">Vista previa en vivo</div>
+  </div>`).join('')}
   </div>
-</div>`;
-}).join('')}
-</div>
-
-<div class="panel" id="tabContentClientes" style="display:none;">
-  <h2>Clientes registrados</h2>
-  <button type="button" onclick="toggleAddCustomer()" style="width:auto;">+ Agregar cliente</button>
-
-  <div id="addCustomerForm" style="display:none;margin-top:16px;padding:16px;background:#fafafa;border-radius:8px;">
-    <label>RUT</label>
-    <input type="text" id="newRut" placeholder="12345678-5">
-    <label>Nombre</label>
-    <input type="text" id="newFirstName">
-    <label>Apellido</label>
-    <input type="text" id="newLastName">
-    <label>Fecha de nacimiento</label>
-    <input type="date" id="newBirthDate">
-    <label>Correo</label>
-    <input type="text" id="newEmail">
-    <label>WhatsApp (opcional)</label>
-    <input type="text" id="newWhatsapp" placeholder="+56912345678">
-    <button type="button" onclick="createCustomer()">Guardar cliente</button>
-    <div class="msg" id="addCustomerMsg"></div>
-  </div>
-
-  <div style="overflow-x:auto;margin-top:18px;">
-  <table id="customersTable" style="width:100%;min-width:760px;border-collapse:collapse;font-size:13px;">
-    <thead>
-      <tr style="text-align:left;border-bottom:2px solid #eee;">
-        <th style="padding:10px 8px;white-space:nowrap;">RUT</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Nombre</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Correo</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Marcas</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Compras</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Premios</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Estado</th>
-        <th style="padding:10px 8px;white-space:nowrap;">Acciones</th>
-      </tr>
-    </thead>
-    <tbody id="customersBody"></tbody>
-  </table>
-  </div>
-  <div id="customerDetailPanel" style="display:none;margin-top:20px;border-top:2px solid #eee;padding-top:16px;"></div>
-</div>
-
 </div>
 <script>
-async function clearSalesData() {
-  if (!confirm('¿Borrar todos los datos de ventas cargados? Esto no afecta a los clientes ni sus marcas, solo el detalle de ventas para análisis.')) return;
-  const r = await fetch('/api/admin/sales-detail', { method: 'DELETE' });
-  if (r.ok) { window.location.reload(); } else { alert('Error al borrar.'); }
-}
-
-// ---------- Excel: exportar (descarga) ----------
-async function downloadExcel() {
-  const msg = document.getElementById('importMsg');
-  msg.textContent = 'Generando Excel...';
-  msg.style.color = '#555';
-  try {
-    const r = await fetch('/api/admin/all-data');
-    if (r.status === 401) { window.location.href = '/admin'; return; }
-    const data = await r.json();
-
-    const wb = XLSX.utils.book_new();
-    const summary = [
-      ['Resumen del sistema de fidelización'],
-      ['Generado:', new Date().toLocaleString('es-CL')],
-      [],
-      ['Clientes fidelizados', data.stats.customers],
-      ['Tarjetas activas', data.stats.activeCards],
-      ['Tarjetas completadas', data.stats.completedCards],
-      ['Premios canjeados', data.stats.redemptions],
-      ['Total $ vendido a fidelizados', Math.round(data.analytics.totalSold)],
-      ['Ticket promedio', Math.round(data.analytics.ticketPromedio)]
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Resumen');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.customers), 'Clientes');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.purchases), 'Compras');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.stampEvents), 'Marcas');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.redemptions), 'Premios canjeados');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.salesDetail), 'Ventas DTR-MOV');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.analytics.perClient), 'Análisis por cliente');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.analytics.topProducts), 'Top productos');
-
-    XLSX.writeFile(wb, 'fidelizacion-' + new Date().toISOString().slice(0,10) + '.xlsx');
-    msg.textContent = 'Excel descargado ✓';
-    msg.style.color = '#16321f';
-  } catch (err) {
-    msg.textContent = 'Error al generar el Excel: ' + err.message;
-    msg.style.color = '#a01818';
-  }
-}
-
-// Busca la fila de encabezados dentro de una hoja (las primeras filas pueden ser títulos)
-function findHeaderRow(rows, mustContain) {
-  for (let i = 0; i < Math.min(rows.length, 15); i++) {
-    const rowText = (rows[i] || []).map(c => String(c || '').toLowerCase().trim());
-    if (mustContain.every(key => rowText.some(cell => cell.includes(key)))) return i;
-  }
-  return -1;
-}
-function colIndex(headerRow, ...names) {
-  const norm = headerRow.map(h => String(h || '').toLowerCase().trim());
-  // 1) Coincidencia exacta primero (evita confundir "costo total bruto" con "Total Bruto")
-  for (const name of names) {
-    const idx = norm.findIndex(h => h === name);
-    if (idx !== -1) return idx;
-  }
-  // 2) Si no hay exacta, busca que contenga el texto pero descarta columnas de "costo"
-  for (const name of names) {
-    const idx = norm.findIndex(h => h.includes(name) && !h.includes('costo'));
-    if (idx !== -1) return idx;
-  }
-  // 3) Último recurso: cualquier columna que contenga el texto
-  for (const name of names) {
-    const idx = norm.findIndex(h => h.includes(name));
-    if (idx !== -1) return idx;
-  }
-  return -1;
-}
-
-// ---------- Excel: importar base de clientes ----------
-function importRegistryFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const msg = document.getElementById('importMsg');
-  msg.textContent = 'Leyendo archivo...';
-  msg.style.color = '#555';
-
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
-      const headerIdx = findHeaderRow(rows, ['rut']);
-      if (headerIdx === -1) { msg.textContent = 'No se encontró la fila de encabezados (RUT, Nombre, etc).'; msg.style.color = '#a01818'; return; }
-      const header = rows[headerIdx];
-      const cRut = colIndex(header, 'rut');
-      const cNombre = colIndex(header, 'nombre');
-      const cFecha = colIndex(header, 'fechanac', 'fecha nac');
-      const cCorreo = colIndex(header, 'correo');
-      const cBoleta = colIndex(header, 'boleta');
-      const cStickers = colIndex(header, 'sticker');
-      const cDia = colIndex(header, 'día', 'dia');
-      const cMes = colIndex(header, 'mes');
-      const cCajero = colIndex(header, 'cajero');
-
-      const parsed = [];
-      for (let i = headerIdx + 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[cRut]) continue;
-        parsed.push({
-          rut: r[cRut],
-          nombre: r[cNombre] || '',
-          fechaNac: r[cFecha] || null,
-          correo: r[cCorreo] || '',
-          boleta: r[cBoleta] || null,
-          stickers: cStickers !== -1 ? parseInt(r[cStickers], 10) || 0 : 0,
-          dia: cDia !== -1 ? parseInt(r[cDia], 10) : null,
-          mes: cMes !== -1 ? parseInt(r[cMes], 10) : null,
-          cajero: cCajero !== -1 ? (r[cCajero] || null) : null
-        });
-      }
-
-      msg.textContent = 'Importando ' + parsed.length + ' registros (una fila por cada uno, sin combinar)...';
-      const resp = await fetch('/api/admin/import-registry', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows: parsed }) });
-      const result = await resp.json();
-      if (resp.ok) {
-        msg.textContent = '✓ ' + result.inserted + ' registros cargados.';
-        msg.style.color = '#16321f';
-        loadRegistry();
-        setTimeout(() => window.location.reload(), 600);
-      } else {
-        msg.textContent = result.error || 'Error al importar.';
-        msg.style.color = '#a01818';
-      }
-    } catch (err) {
-      msg.textContent = 'Error leyendo el Excel: ' + err.message;
-      msg.style.color = '#a01818';
-    }
-  };
-  reader.readAsArrayBuffer(file);
-  input.value = '';
-}
-
-async function loadRegistry() {
-  const r = await fetch('/api/admin/registry');
-  if (r.status === 401) return;
-  const rows = await r.json();
-  const wrap = document.getElementById('registryWrap');
-  const tbody = document.getElementById('registryBody');
-  if (rows.length === 0) { wrap.style.display = 'none'; return; }
-  wrap.style.display = 'block';
-  tbody.innerHTML = rows.map(row =>
-    '<tr style="border-bottom:1px solid #f0f0f0;">' +
-      '<td style="padding:6px 8px;">' + (row.rut || '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.nombre || '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.fecha_nac || '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.correo || '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.boleta || '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.stickers != null ? row.stickers : '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.dia != null ? row.dia : '') + '</td>' +
-      '<td style="padding:6px 8px;">' + (row.mes != null ? row.mes : '') + '</td>' +
-    '</tr>'
-  ).join('');
-}
-
-async function clearRegistryData() {
-  if (!confirm('¿Borrar todo el registro de clientes cargado? Esto no afecta tus clientes activos del sistema (registro/caja), solo este reporte.')) return;
-  const r = await fetch('/api/admin/registry', { method: 'DELETE' });
-  if (r.ok) { window.location.reload(); } else { alert('Error al borrar.'); }
-}
-
-loadRegistry();
-
-// ---------- Excel: importar reporte de ventas (DTR-MOV) ----------
-function importSalesFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const msg = document.getElementById('importMsg');
-  msg.textContent = 'Leyendo archivo de ventas (puede tardar si es grande)...';
-  msg.style.color = '#555';
-
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true, cellText: false });
-      const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('dtr')) || wb.SheetNames[0];
-      const ws = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
-      const headerIdx = findHeaderRow(rows, ['rut', 'documento']);
-      if (headerIdx === -1) { msg.textContent = 'No se encontró la fila de encabezados (rut, documento, etc).'; msg.style.color = '#a01818'; return; }
-      const header = rows[headerIdx];
-      const cRut = colIndex(header, 'rut');
-      const cDoc = colIndex(header, 'documento');
-      const cFecha = colIndex(header, 'fecha');
-      const cHora = colIndex(header, 'hora');
-      const cCajero = colIndex(header, 'nombre usuario');
-      const cProducto = colIndex(header, 'nombre');
-      const cGrupo = colIndex(header, 'grupo');
-      const cCantidad = colIndex(header, 'cant.sal', 'cant sal');
-      const cNeto = colIndex(header, 'total neto');
-      const cBruto = colIndex(header, 'total bruto');
-
-      const toStr = (v) => {
-        if (v == null) return null;
-        if (v instanceof Date) return v.toISOString().slice(0,10);
-        return String(v).trim();
-      };
-
-      const parsed = [];
-      for (let i = headerIdx + 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || r[cDoc] == null) continue;
-        parsed.push({
-          rut: toStr(r[cRut]),
-          documento: toStr(r[cDoc]),
-          fecha: toStr(r[cFecha]),
-          hora: toStr(r[cHora]),
-          cajero: toStr(r[cCajero]),
-          producto: toStr(r[cProducto]),
-          grupo: toStr(r[cGrupo]),
-          cantidad: parseFloat(r[cCantidad]) || 0,
-          totalNeto: parseFloat(r[cNeto]) || 0,
-          totalBruto: parseFloat(r[cBruto]) || 0
-        });
-      }
-
-      msg.textContent = 'Importando ' + parsed.length + ' filas de venta (esto puede tardar)...';
-      // Se envía en lotes para no saturar el servidor con archivos muy grandes
-      const chunkSize = 2000;
-      let totalInserted = 0;
-      for (let i = 0; i < parsed.length; i += chunkSize) {
-        const chunk = parsed.slice(i, i + chunkSize);
-        const resp = await fetch('/api/admin/import-sales', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows: chunk }) });
-        const result = await resp.json();
-        if (!resp.ok) { msg.textContent = result.error || 'Error al importar ventas.'; msg.style.color = '#a01818'; return; }
-        totalInserted += result.inserted;
-        msg.textContent = 'Importando... ' + totalInserted + '/' + parsed.length;
-      }
-      msg.textContent = '✓ ' + totalInserted + ' filas de venta importadas. Recargando dashboard...';
-      msg.style.color = '#16321f';
-      setTimeout(() => window.location.reload(), 800);
-    } catch (err) {
-      msg.textContent = 'Error leyendo el Excel: ' + err.message;
-      msg.style.color = '#a01818';
-    }
-  };
-  reader.readAsArrayBuffer(file);
-  input.value = '';
-}
-
-function switchAdminTab(tab) {
-  const tabs = ['dashboard', 'clientes', 'diseno'];
-  tabs.forEach(t => {
-    const content = document.getElementById('tabContent' + t.charAt(0).toUpperCase() + t.slice(1));
-    const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
-    const active = t === tab;
-    if (content) content.style.display = active ? 'block' : 'none';
-    if (btn) {
-      btn.style.background = active ? '#16321f' : '#ddd';
-      btn.style.color = active ? '#fff' : '#333';
-    }
-  });
+function switchTab(tab) {
+  document.getElementById('tabClientes').style.display = tab === 'clientes' ? 'block' : 'none';
+  document.getElementById('tabDiseno').style.display  = tab === 'diseno'   ? 'block' : 'none';
+  document.getElementById('tabBtnClientes').className = 'tabbtn' + (tab === 'clientes' ? ' active' : '');
+  document.getElementById('tabBtnDiseno').className   = 'tabbtn' + (tab === 'diseno'   ? ' active' : '');
   if (tab === 'clientes') loadCustomers();
 }
-
-const DAY_NAMES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-
-async function showCustomerDetail(id) {
-  const panel = document.getElementById('customerDetailPanel');
-  panel.style.display = 'block';
-  panel.innerHTML = '<p style="color:#888;">Cargando detalle...</p>';
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-  const r = await fetch('/api/admin/customers/' + id + '/detail');
-  if (r.status === 401) { window.location.href = '/admin'; return; }
-  const d = await r.json();
-  if (!r.ok) { panel.innerHTML = '<p style="color:#a01818;">' + (d.error || 'Error') + '</p>'; return; }
-
-  const purchasesHtml = d.purchases.map(p =>
-    '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">' + p.documento + '</td><td style="padding:6px;">' + (p.fecha || (p.purchase_date || '').slice(0,10)) + '</td><td style="padding:6px;">' + (p.hora || '—') + '</td><td style="padding:6px;">$' + Math.round(p.monto).toLocaleString('es-CL') + '</td></tr>'
-  ).join('') || '<tr><td colspan="4" style="padding:6px;color:#999;">Sin boletas registradas.</td></tr>';
-
-  const productsHtml = d.topProducts.map(p =>
-    '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:6px;">' + p.producto + '</td><td style="padding:6px;">' + p.cantidad + '</td></tr>'
-  ).join('') || '<tr><td colspan="2" style="padding:6px;color:#999;">Sin datos de venta cruzados para este cliente.</td></tr>';
-
-  const bestHour = d.hourPattern[0] ? d.hourPattern[0].hora_del_dia + ':00 (' + d.hourPattern[0].veces + ' veces)' : 'Sin datos';
-  const bestDay = d.dayPattern[0] ? DAY_NAMES[d.dayPattern[0].dow] + ' (' + d.dayPattern[0].veces + ' veces)' : 'Sin datos';
-
-  panel.innerHTML = '<h3>Detalle: ' + d.customer.first_name + ' ' + d.customer.last_name + ' (' + d.customer.rut + ')</h3>' +
-    '<button type="button" onclick="document.getElementById(\\'customerDetailPanel\\').style.display=\\'none\\'" style="width:auto;background:#888;margin-bottom:14px;">Cerrar detalle</button>' +
-    '<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px;">' +
-      '<div style="background:#f7f7f7;border-radius:8px;padding:12px 16px;"><div style="font-size:12px;color:#777;">Horario preferido</div><div style="font-size:16px;font-weight:700;color:#16321f;">' + bestHour + '</div></div>' +
-      '<div style="background:#f7f7f7;border-radius:8px;padding:12px 16px;"><div style="font-size:12px;color:#777;">Día preferido</div><div style="font-size:16px;font-weight:700;color:#16321f;">' + bestDay + '</div></div>' +
-    '</div>' +
-    '<div style="display:flex;gap:24px;flex-wrap:wrap;">' +
-      '<div style="flex:1;min-width:300px;"><h4>Boletas (N° de boleta)</h4><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Boleta</th><th style="padding:6px;">Fecha</th><th style="padding:6px;">Hora</th><th style="padding:6px;">Monto</th></tr></thead><tbody>' + purchasesHtml + '</tbody></table></div>' +
-      '<div style="flex:1;min-width:260px;"><h4>Productos que más compra</h4><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="text-align:left;border-bottom:2px solid #eee;"><th style="padding:6px;">Producto</th><th style="padding:6px;">Cant.</th></tr></thead><tbody>' + productsHtml + '</tbody></table></div>' +
-    '</div>';
-}
-
-function toggleAddCustomer() {
-  const f = document.getElementById('addCustomerForm');
-  f.style.display = f.style.display === 'none' ? 'block' : 'none';
-}
-
-async function loadCustomers() {
-  const r = await fetch('/api/admin/customers');
-  if (r.status === 401) { window.location.href = '/admin'; return; }
-  const rows = await r.json();
-  const tbody = document.getElementById('customersBody');
-  tbody.innerHTML = rows.map(c => \`
-    <tr style="border-bottom:1px solid #f0f0f0;" id="row-\${c.id}">
-      <td style="padding:8px;">\${c.rut}</td>
-      <td style="padding:8px;">\${c.first_name} \${c.last_name}</td>
-      <td style="padding:8px;">\${c.email || ''}</td>
-      <td style="padding:8px;">\${c.current_stamps != null ? c.current_stamps + '/' + c.required_stamps : '—'}</td>
-      <td style="padding:8px;">\${c.lifetime_purchases || 0}</td>
-      <td style="padding:8px;">\${c.lifetime_redemptions || 0}</td>
-      <td style="padding:8px;">\${c.status || '—'}</td>
-      <td style="padding:10px 8px;white-space:nowrap;">
-        <button type="button" style="width:auto;margin:0 4px 4px 0;padding:5px 8px;font-size:12px;background:#0D8063;" onclick="showCustomerDetail(\${c.id})">Detalle</button>
-        <button type="button" style="width:auto;margin:0 4px 4px 0;padding:5px 8px;font-size:12px;" onclick="editCustomer(\${c.id})">Editar</button>
-        <button type="button" style="width:auto;margin:0 4px 4px 0;padding:5px 8px;font-size:12px;background:#888;" onclick="purchaseFor(\${c.id}, '\${c.unique_token || ''}')">Boleta</button>
-        <button type="button" style="width:auto;margin:0 0 4px 0;padding:5px 8px;font-size:12px;background:#a01818;" onclick="deleteCustomer(\${c.id})">Eliminar</button>
-      </td>
-    </tr>
-  \`).join('');
-}
-
-async function createCustomer() {
-  const body = {
-    rut: document.getElementById('newRut').value.trim(),
-    first_name: document.getElementById('newFirstName').value.trim(),
-    last_name: document.getElementById('newLastName').value.trim(),
-    birth_date: document.getElementById('newBirthDate').value,
-    email: document.getElementById('newEmail').value.trim(),
-    whatsapp_number: document.getElementById('newWhatsapp').value.trim() || undefined
-  };
-  const r = await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await r.json();
-  const msg = document.getElementById('addCustomerMsg');
-  if (r.ok) {
-    msg.textContent = 'Cliente creado ✓';
-    msg.style.color = '#16321f';
-    loadCustomers();
-  } else {
-    msg.textContent = data.error || 'Error';
-    msg.style.color = '#a01818';
-  }
-}
-
-async function editCustomer(id) {
-  const newFirst = prompt('Nuevo nombre (deja vacío para no cambiar):');
-  const newLast = prompt('Nuevo apellido (deja vacío para no cambiar):');
-  const newEmail = prompt('Nuevo correo (deja vacío para no cambiar):');
-  const newWhatsapp = prompt('Nuevo WhatsApp (deja vacío para no cambiar):');
-  const body = {};
-  if (newFirst) body.first_name = newFirst;
-  if (newLast) body.last_name = newLast;
-  if (newEmail) body.email = newEmail;
-  if (newWhatsapp) body.whatsapp_number = newWhatsapp;
-  if (Object.keys(body).length === 0) return;
-  const r = await fetch('/api/admin/customers/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await r.json();
-  if (r.ok) loadCustomers(); else alert(data.error || 'Error al editar');
-}
-
-async function deleteCustomer(id) {
-  if (!confirm('¿Eliminar este cliente y toda su información (tarjeta, marcas, compras)? Esta acción no se puede deshacer.')) return;
-  const r = await fetch('/api/admin/customers/' + id, { method:'DELETE' });
-  const data = await r.json();
-  if (r.ok) loadCustomers(); else alert(data.error || 'Error al eliminar');
-}
-
-let boletaModalCtx = { customerId: null, token: null };
-
-function purchaseFor(customerId, token) {
-  if (!token) { alert('Este cliente no tiene tarjeta activa.'); return; }
-  boletaModalCtx = { customerId, token };
-
-  const overlay = document.createElement('div');
-  overlay.id = 'boletaModalOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
-  overlay.innerHTML =
-    '<div style="background:#fff;border-radius:12px;padding:24px;max-width:420px;width:100%;box-sizing:border-box;">' +
-      '<h3 style="margin-top:0;">Registrar boleta</h3>' +
-      '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">N° de boleta</label>' +
-      '<input type="text" id="boletaInput" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;" autofocus>' +
-      '<button type="button" onclick="lookupBoletaDetail()" style="width:100%;margin-top:10px;padding:10px;background:#444;color:#fff;border:none;border-radius:6px;cursor:pointer;">Buscar boleta</button>' +
-      '<div id="boletaLookupResult" style="margin-top:14px;font-size:13px;"></div>' +
-      '<div style="display:flex;gap:8px;margin-top:18px;">' +
-        '<button type="button" onclick="confirmBoleta()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;">Confirmar y asignar marca</button>' +
-        '<button type="button" onclick="closeBoletaModal()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;">Cancelar</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(overlay);
-}
-
-function closeBoletaModal() {
-  const el = document.getElementById('boletaModalOverlay');
-  if (el) el.remove();
-}
-
-async function lookupBoletaDetail() {
-  const documento = document.getElementById('boletaInput').value.trim();
-  const resultDiv = document.getElementById('boletaLookupResult');
-  if (!documento) { resultDiv.innerHTML = '<span style="color:#a01818;">Escribe un número de boleta.</span>'; return; }
-  resultDiv.innerHTML = 'Buscando...';
-  const r = await fetch('/api/admin/lookup-boleta/' + encodeURIComponent(documento));
-  const data = await r.json();
-  if (!r.ok) { resultDiv.innerHTML = '<span style="color:#a01818;">' + (data.error || 'Error') + '</span>'; return; }
-
-  if (data.rows.length === 0) {
-    resultDiv.innerHTML = '<span style="color:#a05a00;">No se encontró esta boleta en el reporte de ventas cargado. Igual puedes confirmarla manualmente si es correcta.</span>';
-    return;
-  }
-  const productsHtml = data.rows.map(p => '<div>• ' + p.producto + ' (x' + p.cantidad + ')</div>').join('');
-  const usedHtml = data.alreadyUsed ? '<div style="color:#a01818;margin-top:6px;">⚠ Esta boleta ya fue usada para asignar una marca antes.</div>' : '';
-  resultDiv.innerHTML =
-    '<div style="background:#f7f7f7;border-radius:8px;padding:10px;">' +
-      '<div style="font-weight:600;margin-bottom:4px;">Productos en esta boleta:</div>' +
-      productsHtml +
-      '<div style="margin-top:6px;font-weight:600;">Total: $' + Math.round(data.total).toLocaleString('es-CL') + '</div>' +
-      usedHtml +
-    '</div>';
-}
-
-async function confirmBoleta() {
-  const documento = document.getElementById('boletaInput').value.trim();
-  if (!documento) { alert('Escribe un número de boleta.'); return; }
-  const r = await fetch('/api/purchases', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ card_token: boletaModalCtx.token, branch_id: 1, receipt_number: documento })
-  });
-  const data = await r.json();
-  if (r.ok) {
-    closeBoletaModal();
-    alert('Marca asignada. Ahora tiene ' + data.current_stamps + ' marcas.');
-    loadCustomers();
-  } else {
-    document.getElementById('boletaLookupResult').innerHTML = '<span style="color:#a01818;">' + (data.error || 'Error al registrar la compra') + '</span>';
-  }
-}
-
-loadCustomers();
-
-function syncColor(id, field, hexVal) {
-  document.querySelector('#panel-' + id + ' [name=' + field + ']:not([type=color])').value = hexVal;
-  updatePreview(id);
-}
-function syncColorFromText(id, field, val) {
-  let v = val.trim();
-  if (v && !v.startsWith('#')) v = '#' + v;
-  if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
-    document.querySelector('#panel-' + id + ' [name=' + field + '_picker]').value = v;
-  }
-  updatePreview(id);
-}
-function chooseIcon(id, btn) {
-  document.getElementById('stamp-icon-' + id).value = btn.dataset.icon;
-  document.querySelectorAll('#iconrow-' + id + ' .iconbtn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  updatePreview(id);
-}
-function markActiveIcon(id) {
-  const val = document.getElementById('stamp-icon-' + id).value;
-  document.querySelectorAll('#iconrow-' + id + ' .iconbtn').forEach(b => b.classList.toggle('active', b.dataset.icon === val));
-  updatePreview(id);
-}
-function normalizeHex(v) {
-  v = (v || '').trim();
-  if (!v) return v;
-  if (!v.startsWith('#')) v = '#' + v;
-  return v;
-}
-function updatePreview(id) {
-  const form = document.querySelector('#panel-' + id + ' form');
-  const primary = normalizeHex(form.primary_color.value) || '#16321f';
-  const stampColor = normalizeHex(form.stamp_color.value) || '#d62828';
-  const stampSize = parseInt(form.stamp_size.value, 10) || 22;
-  const logoUrl = form.logo_url.value.trim();
-  const logoWidth = form.logo_width.value;
-  const stamps = parseInt(form.required_stamps.value, 10) || 10;
-  const icon = document.getElementById('stamp-icon-' + id).value || '★';
-  const name = form.name.value || '';
-
-  const card = document.getElementById('preview-card-' + id);
-  if (/^#[0-9A-Fa-f]{6}$/.test(primary)) card.style.background = primary;
-
-  const logoImg = document.getElementById('preview-logo-' + id);
-  logoImg.src = logoUrl;
-  logoImg.style.display = logoUrl ? 'block' : 'none';
-  logoImg.style.width = 'min(' + logoWidth + 'px, 80%)';
-  logoImg.style.maxHeight = '75px';
-  logoImg.style.height = 'auto';
-
-  document.getElementById('preview-brand-' + id).textContent = name;
-
-  const grid = document.getElementById('preview-grid-' + id);
-  grid.innerHTML = '';
-  const showCount = Math.min(stamps, 15);
-  for (let i = 0; i < showCount; i++) {
-    const div = document.createElement('div');
-    div.className = 'preview-stamp' + (i === 0 ? ' filled' : '');
-    if (i === 0 && /^#[0-9A-Fa-f]{6}$/.test(stampColor)) {
-      div.style.background = stampColor;
-      div.style.borderColor = stampColor;
-    }
-    div.style.fontSize = Math.min(stampSize, 25) + 'px';
-    div.textContent = i === 0 ? icon : '';
-    grid.appendChild(div);
-  }
-}
-
-${programs.map(p => `updatePreview(${p.id});`).join('\n')}
 
 async function logout() {
   await fetch('/api/auth/logout', { method:'POST' });
   window.location.href = '/admin';
 }
 
+// ── Clientes ──────────────────────────────────────────────
+async function loadCustomers() {
+  const r = await fetch('/api/admin/customers');
+  if (r.status === 401) { window.location.href = '/admin'; return; }
+  const rows = await r.json();
+  const tbody = document.getElementById('custBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" style="padding:16px;color:#999;">Sin clientes registrados todavía.</td></tr>'; return; }
+  const allData = await (await fetch('/api/admin/all-data')).json();
+  const purchaseMap = {};
+  (allData.purchases || []).forEach(p => {
+    if (!purchaseMap[p.customer_id]) purchaseMap[p.customer_id] = [];
+    purchaseMap[p.customer_id].push(p.receipt_number);
+  });
+  tbody.innerHTML = rows.map(c => {
+    const boletas = purchaseMap[c.id] || [];
+    return '<tr>' +
+      '<td>' + c.rut + '</td>' +
+      '<td>' + c.first_name + ' ' + c.last_name + '</td>' +
+      '<td>' + (c.birth_date || '—') + '</td>' +
+      '<td>' + (c.email || '') + '</td>' +
+      '<td style="font-size:12px;">' + (boletas.length ? boletas.join(', ') : '—') + '</td>' +
+      '<td style="text-align:center;">' + boletas.length + '</td>' +
+      '<td>' + (c.current_stamps != null ? c.current_stamps + '/' + (c.required_stamps||10) : '0/10') + '</td>' +
+      '<td><button class="actbtn" onclick="showDetail(' + c.id + ')">Detalle</button>' +
+      '<button class="actbtn delbtn" onclick="delCustomer(' + c.id + ')">Eliminar</button></td>' +
+    '</tr>';
+  }).join('');
+}
+
+async function showDetail(id) {
+  const panel = document.getElementById('detailPanel');
+  panel.style.display = 'block';
+  panel.innerHTML = 'Cargando...';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const r = await fetch('/api/admin/customers/' + id + '/detail');
+  const d = await r.json();
+  if (!r.ok) { panel.innerHTML = d.error || 'Error'; return; }
+  const DAYS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const bestHour = d.hourPattern[0] ? d.hourPattern[0].hora_del_dia + ':00 (' + d.hourPattern[0].veces + ' veces)' : '—';
+  const bestDay  = d.dayPattern[0]  ? DAYS[d.dayPattern[0].dow] + ' (' + d.dayPattern[0].veces + ' veces)' : '—';
+  panel.innerHTML =
+    '<h3>' + d.customer.first_name + ' ' + d.customer.last_name + ' (' + d.customer.rut + ')</h3>' +
+    '<button type="button" onclick="document.getElementById(\'detailPanel\').style.display=\'none\'" style="width:auto;background:#888;margin-bottom:14px;">Cerrar</button>' +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">' +
+      '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Horario preferido</div><div style="font-weight:700;">' + bestHour + '</div></div>' +
+      '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Día preferido</div><div style="font-weight:700;">' + bestDay + '</div></div>' +
+    '</div>' +
+    '<h4 style="margin:0 0 8px;">Boletas registradas</h4>' +
+    '<table><thead><tr><th>N° Boleta</th><th>Fecha</th><th>Hora</th><th>Monto</th></tr></thead><tbody>' +
+    (d.purchases.length ? d.purchases.map(p => '<tr><td>' + p.documento + '</td><td>' + (p.fecha || p.purchase_date.slice(0,10)) + '</td><td>' + (p.hora || '—') + '</td><td>$' + Math.round(p.monto).toLocaleString('es-CL') + '</td></tr>').join('') : '<tr><td colspan="4" style="color:#999;">Sin boletas.</td></tr>') +
+    '</tbody></table>';
+}
+
+async function delCustomer(id) {
+  if (!confirm('¿Eliminar este cliente y toda su información?')) return;
+  const r = await fetch('/api/admin/customers/' + id, { method: 'DELETE' });
+  if (r.ok) loadCustomers(); else alert('Error al eliminar');
+}
+
+async function downloadExcel() {
+  const r = await fetch('/api/admin/customers');
+  const rows = await r.json();
+  const allData = await (await fetch('/api/admin/all-data')).json();
+  const purchaseMap = {};
+  (allData.purchases || []).forEach(p => {
+    if (!purchaseMap[p.customer_id]) purchaseMap[p.customer_id] = [];
+    purchaseMap[p.customer_id].push(p.receipt_number);
+  });
+  const data = rows.map(c => ({
+    'RUT': c.rut,
+    'Nombre Apellido': c.first_name + ' ' + c.last_name,
+    'Fecha Nacimiento': c.birth_date || '',
+    'Correo': c.email || '',
+    'N° Boletas': (purchaseMap[c.id] || []).join(', '),
+    'Cantidad Boletas': (purchaseMap[c.id] || []).length,
+    'Marcas actuales': c.current_stamps || 0
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Clientes');
+  XLSX.writeFile(wb, 'clientes-getit-' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+// ── Diseño ────────────────────────────────────────────────
+function syncRange(input, valId) {
+  document.getElementById(valId).textContent = input.value + 'px';
+}
+function syncColor(id, field, hexVal) {
+  document.querySelector('#panel-design-' + id + ' [name=' + field + ']:not([type=color])').value = hexVal;
+  updatePreview(id);
+}
+function syncColorFromText(id, field, val) {
+  let v = val.trim();
+  if (v && !v.startsWith('#')) v = '#' + v;
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+    document.querySelector('#panel-design-' + id + ' [name=' + field + '][type=color]').value = v;
+    updatePreview(id);
+  }
+}
+function updatePreview(id) {
+  const form = document.querySelector('[data-prog="' + id + '"] form');
+  const primary = form.primary_color.value || '#000';
+  const stampColor = form.stamp_color.value || '#d62828';
+  const stampSize = parseInt(form.stamp_size.value, 10) || 22;
+  const logoUrl = form.logo_url.value.trim();
+  const logoWidth = form.logo_width.value;
+  const stamps = parseInt(form.required_stamps.value, 10) || 10;
+  const icon = document.getElementById('stamp-icon-' + id).value || '★';
+  const name = form.name.value || '';
+  const card = document.getElementById('preview-card-' + id);
+  if (/^#[0-9A-Fa-f]{6}$/.test(primary)) card.style.background = primary;
+  const logoImg = document.getElementById('preview-logo-' + id);
+  logoImg.src = logoUrl;
+  logoImg.style.display = logoUrl ? 'block' : 'none';
+  logoImg.style.width = 'min(' + logoWidth + 'px, 80%)';
+  document.getElementById('preview-brand-' + id).textContent = name;
+  const grid = document.getElementById('preview-grid-' + id);
+  grid.innerHTML = '';
+  for (let i = 0; i < Math.min(stamps, 15); i++) {
+    const div = document.createElement('div');
+    div.className = 'preview-stamp' + (i === 0 ? ' filled' : '');
+    if (i === 0) { div.style.background = stampColor; }
+    div.style.fontSize = Math.min(stampSize, 25) + 'px';
+    div.textContent = i === 0 ? icon : '';
+    grid.appendChild(div);
+  }
+}
+
 async function saveProgram(e, id) {
   e.preventDefault();
-  const form = e.target;
+  const f = e.target;
   const body = {
-    name: form.name.value,
-    required_stamps: parseInt(form.required_stamps.value, 10),
-    logo_url: form.logo_url.value,
-    logo_width: parseInt(form.logo_width.value, 10),
-    primary_color: normalizeHex(form.primary_color.value),
-    secondary_color: normalizeHex(form.secondary_color.value),
-    stamp_icon: document.getElementById('stamp-icon-' + id).value,
-    stamp_color: normalizeHex(form.stamp_color.value),
-    stamp_size: parseInt(form.stamp_size.value, 10)
+    name: f.name.value, required_stamps: parseInt(f.required_stamps.value,10),
+    logo_url: f.logo_url.value.trim(), logo_width: parseInt(f.logo_width.value,10),
+    primary_color: f.primary_color.value, secondary_color: f.secondary_color.value,
+    stamp_icon: f.stamp_icon.value, stamp_color: f.stamp_color.value,
+    stamp_size: parseInt(f.stamp_size.value,10)
   };
   const r = await fetch('/api/admin/programs/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await r.json();
-  document.getElementById('msg-' + id).textContent = r.ok ? 'Guardado ✓' : (data.error || 'Error');
-  return false;
+  const msg = document.getElementById('msg-' + id);
+  msg.textContent = r.ok ? '✓ Diseño guardado.' : 'Error al guardar.';
+  msg.style.color = r.ok ? '#16321f' : '#a01818';
 }
+
+${programs.map(p => `updatePreview(${p.id});`).join('\n')}
+loadCustomers();
 </script>
 </body></html>`);
 }
