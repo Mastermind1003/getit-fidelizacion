@@ -1753,7 +1753,7 @@ function renderAdminPage(req, res) {
         </div>`).join('')}
 
         <button type="submit" style="margin-top:10px;">Guardar Términos y Condiciones</button>
-        <div class="msg" id="tyc_config_msg"></div>
+        <div class="msg" id="tyc_config_msg"></div><div style="margin-top:20px;padding:16px;border:1px solid #eee;border-radius:8px;background:#fafafa;"><div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px;">Vista previa del logo</div><div id="tyc_preview_wrap" style="border-radius:8px;padding:16px;text-align:center;"><img id="typ_logo" style="object-fit:contain;display:none;"></div></div>
       </form>
     </div>
 
@@ -1762,7 +1762,7 @@ function renderAdminPage(req, res) {
   </div>
 
   <!-- PESTAÑA DISEÑO -->
-  <div id="tabDiseno" style="display:none;">
+  <div id="tabDiseno" style="display:none;"><div class="panel" style="margin-bottom:12px;"><div style="display:flex;gap:12px;flex-wrap:wrap;"><button type="button" onclick="switchAdminTab('registro');showIface('login')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🔐 Editar Login</button><button type="button" onclick="switchAdminTab('diseno')" style="flex:1;background:#16321f;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🎨 Diseño de tarjeta</button><button type="button" onclick="switchAdminTab('registro');showIface('registro')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">📋 Editar Registro</button></div></div>
   ${programs.map(p => `
   <div class="panel" id="panel-design-${p.id}" data-prog="${p.id}">
     <div class="design-wrap">
@@ -2204,7 +2204,7 @@ async function loadTycConfig() {
   setColor('title', cfg.title_color); setColor('h2', cfg.h2_color); setColor('text', cfg.text_color);
   set('tyc_razon_social', cfg.razon_social); set('tyc_rut', cfg.rut);
   set('tyc_nombre_fantasia', cfg.nombre_fantasia); set('tyc_domicilio', cfg.domicilio);
-  set('tyc_titulo', cfg.titulo); set('tyc_fecha', cfg.fecha_actualizacion);
+  set('tyc_titulo', cfg.titulo); set('tyc_fecha', cfg.fecha_actualizacion); updateTycPreview();
   [1,2,3,4,5,6,7,8].forEach(function(n) {
     set('tyc_s'+n+'_titulo', cfg['s'+n+'_titulo']);
     set('tyc_s'+n+'_texto', cfg['s'+n+'_texto']);
@@ -2222,7 +2222,7 @@ function syncTycColorText(key, val) {
     if(p) p.value = v;
   }
 }
-function updateTycPreview() {} // placeholder por si se agrega preview en el futuro
+function updateTycPreview() { var logo=document.getElementById('tyc_logo').value; var logoW=document.getElementById('tyc_logo_width').value||120; var bgc=document.getElementById('tyc_bg_color')?document.getElementById('tyc_bg_color').value:''; var wrap=document.getElementById('tyc_preview_wrap'); var img=document.getElementById('typ_logo'); if(wrap&&bgc) wrap.style.background=bgc; if(img){ img.src=logo; img.style.display=logo?'inline-block':'none'; img.style.maxWidth=logoW+'px'; img.style.maxHeight='140px'; } }
 
 async function saveTycConfig(e) {
   e.preventDefault();
