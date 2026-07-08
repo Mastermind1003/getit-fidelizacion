@@ -244,7 +244,7 @@ if (branchCount === 0) {
   db.prepare('INSERT INTO branches (name, address) VALUES (?, ?)').run('Sucursal Centro', 'Av. Principal 123');
   db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, logo_width, primary_color, secondary_color, stamp_icon, stamp_color, stamp_size)
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }),
+    .run('Club de Fidelización', 10, JSON.stringify({ min_amount: 0 }),
          'https://i.imgur.com/nJrUCee.png', 140,
          '#000000', '#0f1115', '★', '#d62828', 22);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
@@ -1568,7 +1568,8 @@ document.getElementById('rutInput').addEventListener('keypress', function(e) {
 
 async function buscar() {
   const raw = document.getElementById('rutInput').value.trim();
-  const rut = raw.replace(/\./g, ''); // quitar puntos: 12.345.678-5 → 12345678-5
+  const rutDigitsM = raw.replace(/[^0-9kK]/gi, '');
+  const rut = rutDigitsM.length >= 2 ? rutDigitsM.slice(0,-1) + '-' + rutDigitsM.slice(-1).toUpperCase() : raw.trim();
   const err = document.getElementById('errMsg');
   err.style.display = 'none';
   if (!rut) { err.textContent = 'Por favor ingresa tu RUT.'; err.style.display = 'block'; return; }
@@ -1660,7 +1661,9 @@ function onRutInput(e) {
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const rut = f.rut.value.trim().replace(/\./g, ''); // 12.345.678-5 → 12345678-5
+  const rutRaw = f.rut.value.trim();
+  const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
+  const rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
   const firstName = f.first_name.value.trim();
   const lastName = f.last_name.value.trim();
   const email = f.email.value.trim();
@@ -1816,7 +1819,9 @@ function showSearchError(data) {
 
 document.getElementById('searchFormRut').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const rut = e.target.rut.value.trim().replace(/\./g, '');
+  const rutRawC = e.target.rut.value.trim();
+  const rutDigitsC = rutRawC.replace(/[^0-9kK]/gi, '');
+  const rut = rutDigitsC.length >= 2 ? rutDigitsC.slice(0,-1) + '-' + rutDigitsC.slice(-1).toUpperCase() : rutRawC;
   const r = await fetch('/api/customers/by-rut/' + encodeURIComponent(rut));
   const data = await r.json();
   if (r.status === 401) { window.location.href = '/caja'; return; }
@@ -1838,8 +1843,7 @@ document.getElementById('purchaseForm').addEventListener('submit', async (e) => 
   const body = {
     card_token: f.card_token.value,
     branch_id: 1,
-    receipt_number: f.receipt_number.value,
-    category: f.category.value || undefined
+    receipt_number: f.receipt_number.value
   };
   const r = await fetch('/api/purchases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await r.json();
@@ -1908,7 +1912,9 @@ function closeRedeemModal() {
 }
 
 async function confirmRedeem() {
-  const rut = document.getElementById('redeemRutInput').value.trim().replace(/\./g, '');
+  const rutRawR = document.getElementById('redeemRutInput').value.trim();
+  const rutDigitsR = rutRawR.replace(/[^0-9kK]/gi, '');
+  const rut = rutDigitsR.length >= 2 ? rutDigitsR.slice(0,-1) + '-' + rutDigitsR.slice(-1).toUpperCase() : rutRawR;
   const errDiv = document.getElementById('redeemErr');
   if (!rut) { errDiv.textContent = 'Ingresa el RUT.'; errDiv.style.display = 'block'; return; }
   const r = await fetch('/api/cards/' + currentToken + '/redeem', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rut }) });
@@ -1953,7 +1959,7 @@ async function renderQrPosterPage(req, res) {
   @media print { body{background:#fff;color:#000;} }
 </style></head>
 <body>
-  <h1>¡Únete a nuestro Club de Fidelidad!</h1>
+  <h1>¡Únete a nuestro Club de Fidelización!</h1>
   <p>Escanea este código con la cámara de tu celular para crear tu tarjeta</p>
   <div class="qrbox">${qrHtml}</div>
   <div class="hint">Imprime esta página (Ctrl+P) para tenerla en el mesón</div>
@@ -2018,7 +2024,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return getProgram(req, res, pathName.split('/')[4]);
     if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return await updateProgramDesign(req, res, pathName.split('/')[4]);
 
-    sendJSON(res, 404, { error: 'Ruta no encontrada' });
+    sendJSON(res, 404, { error: 'Cliente no registrado' });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
   }
