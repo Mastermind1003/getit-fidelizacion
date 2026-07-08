@@ -1302,7 +1302,7 @@ async function showDetail(id) {
   const bestDay  = d.dayPattern[0]  ? DAYS[d.dayPattern[0].dow] + ' (' + d.dayPattern[0].veces + ' veces)' : '—';
   panel.innerHTML =
     '<h3>' + d.customer.first_name + ' ' + d.customer.last_name + ' (' + d.customer.rut + ')</h3>' +
-    '<button type="button" onclick="document.getElementById(\'detailPanel\').style.display=\'none\'" style="width:auto;background:#888;margin-bottom:14px;">Cerrar</button>' +
+    '<button type="button" onclick="closeDetail()" style="width:auto;background:#888;margin-bottom:14px;">Cerrar</button>' +
     '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">' +
       '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Horario preferido</div><div style="font-weight:700;">' + bestHour + '</div></div>' +
       '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Día preferido</div><div style="font-weight:700;">' + bestDay + '</div></div>' +
@@ -1311,6 +1311,10 @@ async function showDetail(id) {
     '<table><thead><tr><th>N° Boleta</th><th>Fecha</th><th>Hora</th><th>Monto</th></tr></thead><tbody>' +
     (d.purchases.length ? d.purchases.map(p => '<tr><td>' + p.documento + '</td><td>' + (p.fecha || p.purchase_date.slice(0,10)) + '</td><td>' + (p.hora || '—') + '</td><td>$' + Math.round(p.monto).toLocaleString('es-CL') + '</td></tr>').join('') : '<tr><td colspan="4" style="color:#999;">Sin boletas.</td></tr>') +
     '</tbody></table>';
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').style.display = 'none';
 }
 
 async function delCustomer(id) {
