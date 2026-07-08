@@ -1429,6 +1429,7 @@ function renderAdminPage(req, res) {
   }
   const programs = db.prepare('SELECT * FROM loyalty_programs').all();
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  try {
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin GETit</title>
@@ -1481,10 +1482,11 @@ function renderAdminPage(req, res) {
   .preview-progress{font-size:11px;opacity:0.8;}
   .overflow-x{overflow-x:auto;}
 </style></head>
-<body>
+<body data-role="${staff.role}">
 <div class="topbar">
-  <span>Sesión: ${staff.name} (administrador)</span>
+  <span>Sesión: ${staff.name} (${staff.role === 'superadmin' ? 'super administrador' : 'administrador'})</span>
   <div class="actions">
+    <button onclick="window.location.href='/registro'">Registro</button>
     <button onclick="window.location.href='/caja'">Ir a caja</button>
     <button onclick="logout()">Cerrar sesión</button>
   </div>
@@ -1805,7 +1807,7 @@ function renderAdminPage(req, res) {
   </div>
 </div>
 <script>
-const CURRENT_ROLE = '${staff.role}';
+const CURRENT_ROLE = document.body.dataset.role || 'admin';
 function switchAdminTab(tab) {
   ['clientes','diseno','registro','usuarios'].forEach(t => {
     const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -2016,7 +2018,8 @@ async function loadLoginConfig() {
   const r = await fetch('/api/admin/login-config');
   const cfg = await r.json();
   document.getElementById('lc_logo').value = cfg.logo_url || '';
-  if (cfg.logo_width) { var lw=document.getElementById('lc_logo_width'); if(lw){ lw.value=cfg.logo_width; document.getElementById('lc_logo_width_val').textContent=cfg.logo_width+'px'; } } = cfg.bg_color || '#f4f4f5';
+  if (cfg.logo_width) { var lw=document.getElementById('lc_logo_width'); if(lw){ lw.value=cfg.logo_width; document.getElementById('lc_logo_width_val').textContent=cfg.logo_width+'px'; } }
+  document.getElementById('lc_bg_color').value = cfg.bg_color || '#f4f4f5';
   document.getElementById('lc_bg_picker').value = cfg.bg_color || '#f4f4f5';
   document.getElementById('lc_btn_color').value = cfg.btn_color || '#16321f';
   document.getElementById('lc_btn_picker').value = cfg.btn_color || '#16321f';
@@ -2540,6 +2543,7 @@ async function submitAddCustomer() {
 }
 </script>
 </body></html>`);
+  } catch(e) { console.error('ADMIN ERROR:', e.message); }
 }
 
 async function renderCardPage(req, res, token) {
@@ -2895,10 +2899,9 @@ async function renderCajaPage(req, res) {
 </style></head>
 <body>
 <div class="topbar">
-  <span>Sesión: ${staff.name} (${staff.role === 'admin' ? 'administrador' : 'cajero'})</span>
+  <span>Sesión: ${staff.name} (${staff.role === 'superadmin' ? 'super administrador' : staff.role === 'admin' ? 'administrador' : 'cajero'})</span>
   <div style="display:flex;gap:8px;">
-    ${staff.role === 'admin' ? '<button onclick="window.location.href=\'/admin\'">Admin</button>' : ''}
-
+    ${['admin','superadmin'].includes(staff.role) ? '<button onclick="window.location.href=\'/admin\'">← Admin</button>' : ''}
     <button onclick="logout()">Cerrar sesión</button>
   </div>
 </div>
