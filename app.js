@@ -1858,23 +1858,53 @@ document.getElementById('purchaseForm').addEventListener('submit', async (e) => 
 });
 
 async function redeem() {
-  // Modal propio con formato de RUT automático
-  const overlay = document.createElement('div');
-  overlay.id = 'redeemOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
-  overlay.innerHTML =
-    '<div style="background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-sizing:border-box;">' +
-      '<h3 style="margin-top:0;">Confirmar canje de premio</h3>' +
-      '<p style="font-size:13px;color:#555;margin-bottom:12px;">Ingresa el RUT del cliente para validar el canje.</p>' +
-      '<input id="redeemRutInput" type="text" placeholder="12345678-5" oninput="onRutInput(event)" style="width:100%;padding:10px;border:1.5px solid #ccc;border-radius:6px;font-size:15px;box-sizing:border-box;" autofocus>' +
-      '<div id="redeemErr" style="color:#a01818;font-size:13px;margin-top:8px;display:none;"></div>' +
-      '<div style="display:flex;gap:8px;margin-top:16px;">' +
-        '<button type="button" onclick="confirmRedeem()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Confirmar canje</button>' +
-        '<button type="button" onclick="document.getElementById('redeemOverlay').remove()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;">Cancelar</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(overlay);
-  document.getElementById('redeemRutInput').focus();
+  var ov = document.createElement('div');
+  ov.id = 'redeemOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-sizing:border-box;';
+  var title = document.createElement('h3');
+  title.style.marginTop = '0';
+  title.textContent = 'Confirmar canje de premio';
+  var desc = document.createElement('p');
+  desc.style.cssText = 'font-size:13px;color:#555;margin-bottom:12px;';
+  desc.textContent = 'Ingresa el RUT del cliente para validar el canje.';
+  var inp = document.createElement('input');
+  inp.id = 'redeemRutInput';
+  inp.type = 'text';
+  inp.placeholder = '12345678-5';
+  inp.oninput = function(e) { onRutInput(e); };
+  inp.style.cssText = 'width:100%;padding:10px;border:1.5px solid #ccc;border-radius:6px;font-size:15px;box-sizing:border-box;';
+  var err = document.createElement('div');
+  err.id = 'redeemErr';
+  err.style.cssText = 'color:#a01818;font-size:13px;margin-top:8px;display:none;';
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px;';
+  var btnOk = document.createElement('button');
+  btnOk.type = 'button';
+  btnOk.textContent = 'Confirmar canje';
+  btnOk.style.cssText = 'flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;';
+  btnOk.onclick = confirmRedeem;
+  var btnCan = document.createElement('button');
+  btnCan.type = 'button';
+  btnCan.textContent = 'Cancelar';
+  btnCan.style.cssText = 'flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;';
+  btnCan.onclick = closeRedeemModal;
+  btnRow.appendChild(btnOk);
+  btnRow.appendChild(btnCan);
+  box.appendChild(title);
+  box.appendChild(desc);
+  box.appendChild(inp);
+  box.appendChild(err);
+  box.appendChild(btnRow);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  inp.focus();
+}
+
+function closeRedeemModal() {
+  const el = document.getElementById('redeemOverlay');
+  if (el) el.remove();
 }
 
 async function confirmRedeem() {
