@@ -416,7 +416,7 @@ async function createCustomer(req, res) {
     return sendJSON(res, 400, { error: 'Faltan campos obligatorios: rut, first_name, birth_date' });
   }
 
-  const cleanRut = rut.trim().toUpperCase();
+  const cleanRut = rut.trim().replace(/\./g, '').toUpperCase();
   if (!isValidRut(cleanRut)) {
     return sendJSON(res, 400, { error: 'RUT inválido. Formato esperado: 12345678-9 (sin puntos, con guión).' });
   }
@@ -640,7 +640,7 @@ function searchCustomerByRut(req, res, rut) {
   const staff = getAuthenticatedStaff(req);
   if (!staff) return sendJSON(res, 401, { error: 'Debes iniciar sesión como cajero.' });
 
-  const cleanRut = decodeURIComponent(rut).trim().toUpperCase();
+  const cleanRut = decodeURIComponent(rut).trim().replace(/\./g, '').toUpperCase();
   const customer = db.prepare('SELECT * FROM customers WHERE rut = ?').get(cleanRut);
   if (!customer) return sendJSON(res, 404, { error: 'No se encontró ningún cliente con ese RUT.' });
 
@@ -763,7 +763,7 @@ async function redeemCard(req, res, token) {
   if (!card) return sendJSON(res, 404, { error: 'Tarjeta no encontrada' });
   if (card.status !== 'completed') return sendJSON(res, 400, { error: 'La tarjeta aún no completa las marcas requeridas.' });
 
-  const cleanRut = rut.trim().toUpperCase();
+  const cleanRut = rut.trim().replace(/\./g, '').toUpperCase();
   if (cleanRut !== card.rut) {
     logAudit(staff_id, 'redeem_rut_mismatch', 'loyalty_card', card.id, { expected: card.rut }, { entered: cleanRut });
     return sendJSON(res, 403, { error: 'El RUT ingresado no coincide con el dueño de la tarjeta. No se puede canjear.' });
@@ -1504,7 +1504,7 @@ async function renderCardPage(req, res, token) {
 }
 
 function buscarTarjetaPorRut(req, res, rut) {
-  const cleanRut = rut.trim().toUpperCase();
+  const cleanRut = rut.trim().replace(/\./g, '').toUpperCase();
   const customer = db.prepare('SELECT * FROM customers WHERE rut = ?').get(cleanRut);
   if (!customer) return sendJSON(res, 404, { error: 'No encontramos ningún cliente con ese RUT. Verifica que esté escrito sin puntos y con guión (ej: 12345678-5).' });
   const card = db.prepare(`
@@ -1545,7 +1545,7 @@ function renderMiTarjetaPage(req, res) {
   <h1>Ver mi tarjeta</h1>
   <p>Ingresa tu RUT para acceder a tu tarjeta de fidelización y ver tus marcas acumuladas.</p>
   <label>RUT (sin puntos, con guión)</label>
-  <input type="text" id="rutInput" placeholder="12.345.678-5" oninput="onRutInput(event)" autofocus>
+  <input type="text" id="rutInput" placeholder="12345678-5" oninput="onRutInput(event)" autofocus>
   <button onclick="buscar()">Ver mi tarjeta</button>
   <div class="err" id="errMsg"></div>
   <p class="hint">¿Aún no estás registrado? <a href="/registro" style="color:#16321f;">Regístrate aquí</a></p>
@@ -1556,21 +1556,19 @@ function formatRut(val) {
   let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
   if (v.length < 2) return v;
   const dv = v.slice(-1);
-  let body = v.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const body = v.slice(0, -1);
   return body + '-' + dv;
 }
 function onRutInput(e) {
-  const pos = e.target.selectionStart;
-  const prev = e.target.value;
-  const formatted = formatRut(prev);
-  e.target.value = formatted;
+  e.target.value = formatRut(e.target.value);
 }
 document.getElementById('rutInput').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') buscar();
 });
 
 async function buscar() {
-  const rut = document.getElementById('rutInput').value.trim();
+  const raw = document.getElementById('rutInput').value.trim();
+  const rut = raw.replace(/\./g, ''); // quitar puntos: 12.345.678-5 → 12345678-5
   const err = document.getElementById('errMsg');
   err.style.display = 'none';
   if (!rut) { err.textContent = 'Por favor ingresa tu RUT.'; err.style.display = 'block'; return; }
@@ -1627,8 +1625,8 @@ function renderRegisterPage(req, res) {
   <h2>Nuevo cliente</h2>
   <form id="form" autocomplete="off">
     <label>RUT</label>
-    <input name="rut" placeholder="12.345.678-5" oninput="onRutInput(event)" required autofocus>
-    <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
+    <input name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required autofocus>
+    <div class="hint">Sin puntos. Ej: 12345678-5</div>
 
     <label>Nombre</label>
     <input name="first_name" placeholder="Juan" required>
@@ -1647,18 +1645,29 @@ function renderRegisterPage(req, res) {
   <div id="result"></div>
 </div>
 <script>
+function formatRut(val) {
+  let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (v.length < 2) return v;
+  const dv = v.slice(-1);
+  const body = v.slice(0, -1);
+  return body + '-' + dv;
+}
+function onRutInput(e) {
+  const sel = e.target.selectionStart;
+  e.target.value = formatRut(e.target.value);
+}
+
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
-  const rut = f.rut.value.trim();
+  const rut = f.rut.value.trim().replace(/\./g, ''); // 12.345.678-5 → 12345678-5
   const firstName = f.first_name.value.trim();
   const lastName = f.last_name.value.trim();
   const email = f.email.value.trim();
 
   const div = document.getElementById('result');
-  div.className = 'result';
+  div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;display:block;';
   div.innerHTML = 'Registrando...';
-  div.style.display = 'block';
 
   const r = await fetch('/api/customers', {
     method: 'POST',
@@ -1676,13 +1685,13 @@ document.getElementById('form').addEventListener('submit', async (e) => {
 
   if (r.ok) {
     const link = window.location.origin + data.wallet_link;
-    div.className = 'result ok';
+    div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;display:block;';
     div.innerHTML = '✓ Registro exitoso. Abriendo tu tarjeta...';
     setTimeout(() => { window.location.href = link; }, 1200);
     f.reset();
     document.querySelector('[name=rut]').focus();
   } else {
-    div.className = 'result err';
+    div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#fdeaea;color:#a01818;display:block;';
     div.textContent = data.error || 'Error al registrar.';
   }
 });
@@ -1737,7 +1746,7 @@ async function renderCajaPage(req, res) {
   </div>
   <form id="searchFormRut">
     <label>RUT del cliente (sin puntos, con guión)</label>
-    <input name="rut" placeholder="12.345.678-5" oninput="onRutInput(event)" required>
+    <input name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required>
     <button type="submit">Buscar</button>
   </form>
   <form id="searchFormCode" style="display:none;">
@@ -1767,10 +1776,13 @@ function formatRut(val) {
   let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
   if (v.length < 2) return v;
   const dv = v.slice(-1);
-  let body = v.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const body = v.slice(0, -1);
   return body + '-' + dv;
 }
-function onRutInput(e) { e.target.value = formatRut(e.target.value); }
+function onRutInput(e) {
+  const sel = e.target.selectionStart;
+  e.target.value = formatRut(e.target.value);
+}
 
 function switchTab(tab) {
   document.getElementById('tabRut').classList.toggle('active', tab === 'rut');
@@ -1804,7 +1816,7 @@ function showSearchError(data) {
 
 document.getElementById('searchFormRut').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const rut = e.target.rut.value.trim();
+  const rut = e.target.rut.value.trim().replace(/\./g, '');
   const r = await fetch('/api/customers/by-rut/' + encodeURIComponent(rut));
   const data = await r.json();
   if (r.status === 401) { window.location.href = '/caja'; return; }
@@ -1854,7 +1866,7 @@ async function redeem() {
     '<div style="background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-sizing:border-box;">' +
       '<h3 style="margin-top:0;">Confirmar canje de premio</h3>' +
       '<p style="font-size:13px;color:#555;margin-bottom:12px;">Ingresa el RUT del cliente para validar el canje.</p>' +
-      '<input id="redeemRutInput" type="text" placeholder="12.345.678-5" oninput="onRutInput(event)" style="width:100%;padding:10px;border:1.5px solid #ccc;border-radius:6px;font-size:15px;box-sizing:border-box;" autofocus>' +
+      '<input id="redeemRutInput" type="text" placeholder="12345678-5" oninput="onRutInput(event)" style="width:100%;padding:10px;border:1.5px solid #ccc;border-radius:6px;font-size:15px;box-sizing:border-box;" autofocus>' +
       '<div id="redeemErr" style="color:#a01818;font-size:13px;margin-top:8px;display:none;"></div>' +
       '<div style="display:flex;gap:8px;margin-top:16px;">' +
         '<button type="button" onclick="confirmRedeem()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Confirmar canje</button>' +
@@ -1866,7 +1878,7 @@ async function redeem() {
 }
 
 async function confirmRedeem() {
-  const rut = document.getElementById('redeemRutInput').value.trim();
+  const rut = document.getElementById('redeemRutInput').value.trim().replace(/\./g, '');
   const errDiv = document.getElementById('redeemErr');
   if (!rut) { errDiv.textContent = 'Ingresa el RUT.'; errDiv.style.display = 'block'; return; }
   const r = await fetch('/api/cards/' + currentToken + '/redeem', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rut }) });
