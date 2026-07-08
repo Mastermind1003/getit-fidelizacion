@@ -244,7 +244,7 @@ if (branchCount === 0) {
   db.prepare('INSERT INTO branches (name, address) VALUES (?, ?)').run('Sucursal Centro', 'Av. Principal 123');
   db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, logo_width, primary_color, secondary_color, stamp_icon, stamp_color, stamp_size)
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run('Club de Fidelización', 10, JSON.stringify({ min_amount: 0 }),
+    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }),
          'https://i.imgur.com/nJrUCee.png', 140,
          '#000000', '#0f1115', '★', '#d62828', 22);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
@@ -429,7 +429,7 @@ async function createCustomer(req, res) {
     const result = db.prepare(`
       INSERT INTO customers (rut, first_name, last_name, birth_date, email, whatsapp_number)
       VALUES (?,?,?,?,?,?)
-    `).run(cleanRut, first_name, last_name || '-', birth_date, cleanEmail, whatsapp_number || null);
+    `).run(cleanRut, first_name.toUpperCase(), (last_name || '-').toUpperCase(), birth_date, cleanEmail, whatsapp_number || null);
 
     const customerId = Number(result.lastInsertRowid);
     const programId = program_id || 1;
@@ -1303,10 +1303,7 @@ async function showDetail(id) {
   panel.innerHTML =
     '<h3>' + d.customer.first_name + ' ' + d.customer.last_name + ' (' + d.customer.rut + ')</h3>' +
     '<button type="button" onclick="closeDetail()" style="width:auto;background:#888;margin-bottom:14px;">Cerrar</button>' +
-    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">' +
-      '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Horario preferido</div><div style="font-weight:700;">' + bestHour + '</div></div>' +
-      '<div style="background:#f7f7f7;border-radius:8px;padding:10px 14px;"><div style="font-size:11px;color:#777;">Día preferido</div><div style="font-weight:700;">' + bestDay + '</div></div>' +
-    '</div>' +
+
     '<h4 style="margin:0 0 8px;">Boletas registradas</h4>' +
     '<table><thead><tr><th>N° Boleta</th><th>Fecha</th><th>Hora</th><th>Monto</th></tr></thead><tbody>' +
     (d.purchases.length ? d.purchases.map(p => '<tr><td>' + p.documento + '</td><td>' + (p.fecha || p.purchase_date.slice(0,10)) + '</td><td>' + (p.hora || '—') + '</td><td>$' + Math.round(p.monto).toLocaleString('es-CL') + '</td></tr>').join('') : '<tr><td colspan="4" style="color:#999;">Sin boletas.</td></tr>') +
@@ -1630,10 +1627,10 @@ function renderRegisterPage(req, res) {
     <div class="hint">Sin puntos. Ej: 12345678-5</div>
 
     <label>Nombre</label>
-    <input name="first_name" placeholder="Juan" required>
+    <input name="first_name" placeholder="Juan" required style="text-transform:uppercase;">
 
     <label>Apellido</label>
-    <input name="last_name" placeholder="Pérez" required>
+    <input name="last_name" placeholder="Pérez" required style="text-transform:uppercase;">
 
     <label>Fecha de nacimiento</label>
     <input name="birth_date" type="date" required>
@@ -1754,7 +1751,7 @@ async function renderCajaPage(req, res) {
   </form>
   <form id="searchFormCode" style="display:none;">
     <label>Código de la tarjeta (debajo del QR)</label>
-    <input name="code" placeholder="XXXX-XX" required>
+    <input name="code" placeholder="XXXX-XX" oninput="onCodeInput(event)" required>
     <button type="submit">Buscar</button>
   </form>
   <div id="searchResult"></div>
@@ -1787,12 +1784,26 @@ function onRutInput(e) {
   e.target.value = formatRut(e.target.value);
 }
 
+function formatCode(val) {
+  const v = val.replace(/[^0-9]/g, '');
+  if (v.length <= 4) return v;
+  return v.slice(0,4) + '-' + v.slice(4,6);
+}
+function onCodeInput(e) {
+  e.target.value = formatCode(e.target.value);
+}
+
 function switchTab(tab) {
   document.getElementById('tabRut').classList.toggle('active', tab === 'rut');
   document.getElementById('tabCode').classList.toggle('active', tab === 'code');
   document.getElementById('searchFormRut').style.display = tab === 'rut' ? 'block' : 'none';
   document.getElementById('searchFormCode').style.display = tab === 'code' ? 'block' : 'none';
   document.getElementById('searchResult').innerHTML = '';
+  document.getElementById('customerCard').style.display = 'none';
+  document.getElementById('purchaseResult').innerHTML = '';
+  document.getElementById('searchFormRut').reset();
+  document.getElementById('searchFormCode').reset();
+  currentToken = null;
 }
 
 async function logout() {
@@ -1850,11 +1861,28 @@ document.getElementById('purchaseForm').addEventListener('submit', async (e) => 
   const div = document.getElementById('purchaseResult');
   if (r.status === 401) { window.location.href = '/caja'; return; }
   if (r.ok) {
-    div.className = 'result ok';
-    div.textContent = '¡Marca asignada! Ahora tiene ' + data.current_stamps + ' marcas. Estado: ' + data.card_status;
-    document.getElementById('custStamps').textContent = data.current_stamps + ' marcas';
-    document.getElementById('redeemBtn').style.display = data.card_status === 'completed' ? 'block' : 'none';
-    f.reset();
+    if (data.card_status === 'completed') {
+      // Premio disponible: mostrar aviso pero no ocultar aún
+      div.className = 'result ok';
+      div.textContent = '¡Marca asignada! ' + data.current_stamps + '/' + (data.current_stamps >= 10 ? data.current_stamps : 10) + ' marcas. ¡Premio disponible!';
+      document.getElementById('custStamps').textContent = data.current_stamps + ' marcas';
+      document.getElementById('redeemBtn').style.display = 'block';
+      f.reset();
+    } else {
+      // Marca asignada: mostrar mensaje breve y volver a buscar
+      div.className = 'result ok';
+      div.textContent = '✓ Marca registrada (' + data.current_stamps + '/10). Listo para el siguiente cliente.';
+      f.reset();
+      setTimeout(() => {
+        document.getElementById('customerCard').style.display = 'none';
+        document.getElementById('purchaseResult').innerHTML = '';
+        document.getElementById('searchFormRut').reset();
+        document.getElementById('searchFormCode').reset();
+        currentToken = null;
+        const activeTab = document.getElementById('tabRut').classList.contains('active') ? 'rut' : 'code';
+        document.getElementById(activeTab === 'rut' ? 'searchFormRut' : 'searchFormCode').querySelector('input').focus();
+      }, 1500);
+    }
   } else {
     div.className = 'result err';
     div.textContent = data.error;
@@ -1959,7 +1987,7 @@ async function renderQrPosterPage(req, res) {
   @media print { body{background:#fff;color:#000;} }
 </style></head>
 <body>
-  <h1>¡Únete a nuestro Club de Fidelización!</h1>
+  <h1>¡Únete a nuestro Club de Fidelidad!</h1>
   <p>Escanea este código con la cámara de tu celular para crear tu tarjeta</p>
   <div class="qrbox">${qrHtml}</div>
   <div class="hint">Imprime esta página (Ctrl+P) para tenerla en el mesón</div>
@@ -2024,7 +2052,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return getProgram(req, res, pathName.split('/')[4]);
     if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return await updateProgramDesign(req, res, pathName.split('/')[4]);
 
-    sendJSON(res, 404, { error: 'Cliente no registrado' });
+    sendJSON(res, 404, { error: 'Ruta no encontrada' });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
   }
