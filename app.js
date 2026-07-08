@@ -1233,7 +1233,7 @@ async function createUser(req, res) {
   if (!validRoles.includes(role)) {
     return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier, admin o superadmin.' });
   }
-  if (role === 'superadmin' && staff.role !== 'superadmin') { return sendJSON(res, 403, { error: 'Solo el administrador principal puede crear un Super Admin.' }); }
+  if (role === 'superadmin' && staff.role !== 'superadmin') { return sendJSON(res, 403, { error: 'Solo el administrador principal puede crear un Super Admin.' }); } if (password.length < 4) {
     return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
   }
   try {
