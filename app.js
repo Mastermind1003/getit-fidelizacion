@@ -244,9 +244,9 @@ if (branchCount === 0) {
   db.prepare('INSERT INTO branches (name, address) VALUES (?, ?)').run('Sucursal Centro', 'Av. Principal 123');
   db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, logo_width, primary_color, secondary_color, stamp_icon, stamp_color, stamp_size)
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }),
-         'https://i.imgur.com/nJrUCee.png', 140,
-         '#000000', '#0f1115', '★', '#d62828', 22);
+    .run('Club de Fidelización', 10, JSON.stringify({ min_amount: 0 }),
+         'https://i.imgur.com/nJrUCee.png', 100,
+         '#000000', '#0f1115', '✱', '#d62828', 23);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
     .run(1, 'Producto gratis', 'Premio al completar 10 marcas', 10);
 }
