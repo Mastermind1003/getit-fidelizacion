@@ -1704,7 +1704,7 @@ function renderAdminPage(req, res) {
         <label>Tamaño del logo (px)</label>
         <div class="rangerow">
           <input type="range" id="tyc_logo_width" min="40" max="300" value="120" oninput="syncRange(this,'tyc_logo_width_val');updateTycPreview()">
-          <span class="rangeval" id="tyc_logo_width_val">120px</span>
+          <span class="rangeval" id="tyc_logo_width_val">120px</span><div style="margin-top:12px;padding:16px;border:1px solid #eee;border-radius:8px;background:#fafafa;"><div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px;">Vista previa del logo</div><div id="tyc_preview_wrap" style="border-radius:8px;padding:16px;text-align:center;"><img id="typ_logo" style="object-fit:contain;display:none;"></div></div>
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
           <div style="flex:1;min-width:140px;">
@@ -1753,7 +1753,7 @@ function renderAdminPage(req, res) {
         </div>`).join('')}
 
         <button type="submit" style="margin-top:10px;">Guardar Términos y Condiciones</button>
-        <div class="msg" id="tyc_config_msg"></div><div style="margin-top:20px;padding:16px;border:1px solid #eee;border-radius:8px;background:#fafafa;"><div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px;">Vista previa del logo</div><div id="tyc_preview_wrap" style="border-radius:8px;padding:16px;text-align:center;"><img id="typ_logo" style="object-fit:contain;display:none;"></div></div>
+        <div class="msg" id="tyc_config_msg"></div>
       </form>
     </div>
 
@@ -1849,7 +1849,7 @@ function switchAdminTab(tab) {
   ['clientes','diseno','registro','usuarios'].forEach(t => {
     const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
     const panel = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
-    if (btn) btn.className = 'tabbtn' + (tab === t ? ' active' : '');
+    const navActive = (tab === t) || (tab === 'diseno' && t === 'registro'); if (btn) btn.className = 'tabbtn' + (navActive ? ' active' : '');
     if (panel) panel.style.display = tab === t ? 'block' : 'none';
   });
   if (tab === 'clientes') loadCustomers();
