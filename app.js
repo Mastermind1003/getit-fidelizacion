@@ -1153,8 +1153,8 @@ function renderAdminPage(req, res) {
 </div>
 <div class="wrap">
   <div class="tabs">
-    <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchTab('clientes')">Clientes</button>
-    <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchTab('diseno')">Diseño de tarjeta</button>
+    <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchAdminTab('clientes')">Clientes</button>
+    <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>
   </div>
 
   <!-- PESTAÑA CLIENTES -->
@@ -1187,7 +1187,7 @@ function renderAdminPage(req, res) {
   <!-- PESTAÑA DISEÑO -->
   <div id="tabDiseno" style="display:none;">
   ${programs.map(p => `
-  <div class="panel">
+  <div class="panel" id="panel-design-${p.id}" data-prog="${p.id}">
     <div class="design-wrap">
       <div class="formcol">
         <h2>Diseño de tarjeta</h2>
@@ -1247,7 +1247,7 @@ function renderAdminPage(req, res) {
   </div>
 </div>
 <script>
-function switchTab(tab) {
+function switchAdminTab(tab) {
   document.getElementById('tabClientes').style.display = tab === 'clientes' ? 'block' : 'none';
   document.getElementById('tabDiseno').style.display  = tab === 'diseno'   ? 'block' : 'none';
   document.getElementById('tabBtnClientes').className = 'tabbtn' + (tab === 'clientes' ? ' active' : '');
