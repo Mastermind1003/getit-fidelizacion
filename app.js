@@ -244,9 +244,9 @@ if (branchCount === 0) {
   db.prepare('INSERT INTO branches (name, address) VALUES (?, ?)').run('Sucursal Centro', 'Av. Principal 123');
   db.prepare(`INSERT INTO loyalty_programs (name, required_stamps, rules_json, logo_url, logo_width, primary_color, secondary_color, stamp_icon, stamp_color, stamp_size)
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run('Club de Fidelización', 10, JSON.stringify({ min_amount: 0 }),
-         'https://i.imgur.com/nJrUCee.png', 100,
-         '#000000', '#0f1115', '★', '#d62828', 23);
+    .run('Club Fidelidad', 10, JSON.stringify({ min_amount: 0 }),
+         'https://i.imgur.com/nJrUCee.png', 140,
+         '#000000', '#0f1115', '★', '#d62828', 22);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
     .run(1, 'Producto gratis', 'Premio al completar 10 marcas', 10);
 }
@@ -1172,9 +1172,9 @@ function renderAdminPage(req, res) {
             <th>Nombre Apellido</th>
             <th>Fecha Nacimiento</th>
             <th>Correo</th>
-            <th>N° Boletas</th>
-            <th>Cant. Boletas</th>
+            <th>Compras</th>
             <th>Marcas</th>
+            <th>Premios</th>
             <th>Acciones</th>
           </tr>
         </thead>
@@ -1280,9 +1280,9 @@ async function loadCustomers() {
       '<td>' + c.first_name + ' ' + c.last_name + '</td>' +
       '<td>' + (c.birth_date ? c.birth_date.split('-').reverse().join('-') : '—') + '</td>' +
       '<td>' + (c.email || '') + '</td>' +
-      '<td style="font-size:12px;">' + (boletas.length ? boletas.join(', ') : '—') + '</td>' +
       '<td style="text-align:center;">' + boletas.length + '</td>' +
       '<td>' + (c.current_stamps != null ? c.current_stamps + '/' + (c.required_stamps||10) : '0/10') + '</td>' +
+      '<td style="text-align:center;">' + Math.floor(boletas.length / (c.required_stamps||10)) + '</td>' +
       '<td><button class="actbtn" onclick="showDetail(' + c.id + ')">Detalle</button>' +
       '<button class="actbtn delbtn" onclick="delCustomer(' + c.id + ')">Eliminar</button></td>' +
     '</tr>';
@@ -1753,9 +1753,7 @@ async function renderCajaPage(req, res) {
     <form id="purchaseForm">
       <input type="hidden" name="card_token" id="cardToken">
       <label>N° de boleta</label>
-      <input name="receipt_number" type="number" min="1" placeholder="9642630" required>
-      <label>Categoría (opcional)</label>
-      <input name="category" placeholder="ej. comida">
+      <input name="receipt_number" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="9642630" required style="appearance:textfield;-moz-appearance:textfield;">
       <button type="submit">Registrar compra y asignar marca</button>
     </form>
     <div id="purchaseResult"></div>
@@ -1848,20 +1846,42 @@ document.getElementById('purchaseForm').addEventListener('submit', async (e) => 
 });
 
 async function redeem() {
-  const rut = prompt('Validación obligatoria: ingresa el RUT del cliente para confirmar el canje (cédula de identidad):');
-  if (!rut) return;
+  // Modal propio con formato de RUT automático
+  const overlay = document.createElement('div');
+  overlay.id = 'redeemOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:12px;padding:24px;max-width:380px;width:100%;box-sizing:border-box;">' +
+      '<h3 style="margin-top:0;">Confirmar canje de premio</h3>' +
+      '<p style="font-size:13px;color:#555;margin-bottom:12px;">Ingresa el RUT del cliente para validar el canje.</p>' +
+      '<input id="redeemRutInput" type="text" placeholder="12.345.678-5" oninput="onRutInput(event)" style="width:100%;padding:10px;border:1.5px solid #ccc;border-radius:6px;font-size:15px;box-sizing:border-box;" autofocus>' +
+      '<div id="redeemErr" style="color:#a01818;font-size:13px;margin-top:8px;display:none;"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;">' +
+        '<button type="button" onclick="confirmRedeem()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Confirmar canje</button>' +
+        '<button type="button" onclick="document.getElementById('redeemOverlay').remove()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  document.getElementById('redeemRutInput').focus();
+}
+
+async function confirmRedeem() {
+  const rut = document.getElementById('redeemRutInput').value.trim();
+  const errDiv = document.getElementById('redeemErr');
+  if (!rut) { errDiv.textContent = 'Ingresa el RUT.'; errDiv.style.display = 'block'; return; }
   const r = await fetch('/api/cards/' + currentToken + '/redeem', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rut }) });
   const data = await r.json();
   const div = document.getElementById('purchaseResult');
   if (r.status === 401) { window.location.href = '/caja'; return; }
   if (r.ok) {
+    document.getElementById('redeemOverlay').remove();
     div.className = 'result ok';
     div.textContent = '¡Premio canjeado: ' + data.reward + '! La tarjeta volvió a 0.';
     document.getElementById('custStamps').textContent = '0 marcas';
     document.getElementById('redeemBtn').style.display = 'none';
   } else {
-    div.className = 'result err';
-    div.textContent = data.error;
+    errDiv.textContent = data.error;
+    errDiv.style.display = 'block';
   }
 }
 </script>
