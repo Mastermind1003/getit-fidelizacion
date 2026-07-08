@@ -1165,6 +1165,7 @@ function renderAdminPage(req, res) {
     <h2>Clientes registrados</h2>
     <div class="btnrow">
       <button type="button" class="btn-excel" onclick="downloadExcel()">⬇ Descargar Excel</button>
+      <button type="button" style="background:#16321f;" onclick="showAddCustomerModal()">+ Agregar cliente</button>
 
     </div>
     <div class="overflow-x">
@@ -1429,6 +1430,70 @@ async function saveProgram(e, id) {
 
 ${programs.map(p => `updatePreview(${p.id});`).join('\n')}
 loadCustomers();
+
+function showAddCustomerModal() {
+  var ov = document.createElement('div');
+  ov.id = 'addCustOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;overflow-y:auto;';
+  ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;max-width:420px;width:100%;box-sizing:border-box;">' +
+    '<h3 style="margin-top:0;">Agregar cliente</h3>' +
+    '<form id="addCustForm" autocomplete="off">' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">RUT</label>' +
+      '<input id="ac_rut" type="text" placeholder="12345678-5" oninput="acFormatRut(this)" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;">' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">Nombre</label>' +
+      '<input id="ac_fn" type="text" placeholder="Juan" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;text-transform:uppercase;">' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">Apellido</label>' +
+      '<input id="ac_ln" type="text" placeholder="Pérez" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;text-transform:uppercase;">' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">Correo</label>' +
+      '<input id="ac_email" type="email" placeholder="juan@correo.com" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;">' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">Teléfono</label>' +
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+        '<span style="padding:9px 10px;border:1.5px solid #ddd;border-radius:7px;background:#f9f9f9;font-size:14px;white-space:nowrap;">+569</span>' +
+        '<input id="ac_phone" type="tel" placeholder="12345678" maxlength="8" inputmode="numeric" style="flex:1;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;">' +
+      '</div>' +
+      '<label style="display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;">Fecha de nacimiento</label>' +
+      '<input id="ac_bd" type="date" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;">' +
+      '<div id="ac_err" style="color:#a01818;font-size:13px;margin-top:10px;display:none;"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:18px;">' +
+        '<button type="button" onclick="submitAddCustomer()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px;">Guardar cliente</button>' +
+        '<button type="button" onclick="closeAddCustomerModal()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Cancelar</button>' +
+      '</div>' +
+    '</form>' +
+  '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('ac_rut').focus();
+}
+
+function acFormatRut(inp) {
+  let v = inp.value.replace(/[^0-9kK]/g, '').toUpperCase();
+  inp.value = v.length < 2 ? v : v.slice(0,-1) + '-' + v.slice(-1);
+}
+
+function closeAddCustomerModal() {
+  const el = document.getElementById('addCustOverlay');
+  if (el) el.remove();
+}
+
+async function submitAddCustomer() {
+  const err = document.getElementById('ac_err');
+  err.style.display = 'none';
+  const rutRaw = document.getElementById('ac_rut').value.trim();
+  const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
+  const rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
+  const fn = document.getElementById('ac_fn').value.trim();
+  const ln = document.getElementById('ac_ln').value.trim();
+  const email = document.getElementById('ac_email').value.trim();
+  const phone = document.getElementById('ac_phone').value.trim();
+  const bd = document.getElementById('ac_bd').value;
+  if (!rut || !fn || !ln || !email || !bd) { err.textContent = 'Completa todos los campos obligatorios.'; err.style.display = 'block'; return; }
+  const r = await fetch('/api/customers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rut, first_name: fn, last_name: ln, birth_date: bd, email, whatsapp_number: phone ? '+569' + phone : undefined, marcas: 0 })
+  });
+  const data = await r.json();
+  if (r.ok) { closeAddCustomerModal(); loadCustomers(); }
+  else { err.textContent = data.error || 'Error al agregar.'; err.style.display = 'block'; }
+}
 </script>
 </body></html>`);
 }
@@ -1625,7 +1690,7 @@ function renderRegisterPage(req, res) {
 <div class="panel">
   <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
   <h2>Club de Fidelización</h2>
-  <p class="sub">Regístrate y acumula marcas con cada visita</p>
+  <p class="sub">Regístrate y acumula marcas con tus compras</p>
   <form id="form" autocomplete="off">
     <label>RUT *</label>
     <input type="text" name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required>
