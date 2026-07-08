@@ -295,7 +295,10 @@ function getLanIp() {
   return 'localhost';
 }
 const LAN_IP = getLanIp();
-const BASE_URL = `http://${LAN_IP}:${PORT}`;
+const IS_PRODUCTION = !!(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+const BASE_URL = process.env.RENDER_EXTERNAL_URL
+  || process.env.APP_URL
+  || `http://${LAN_IP}:${PORT}`;
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 horas
 
 // ---------- Autenticación ----------
@@ -1162,7 +1165,7 @@ function renderAdminPage(req, res) {
     <h2>Clientes registrados</h2>
     <div class="btnrow">
       <button type="button" class="btn-excel" onclick="downloadExcel()">⬇ Descargar Excel</button>
-      <button type="button" onclick="window.location.href='/registro'">+ Registrar cliente</button>
+
     </div>
     <div class="overflow-x">
       <table>
@@ -1595,50 +1598,70 @@ function renderRegisterPage(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Registrar cliente</title>
+<title>Registro Club GETit</title>
 <style>
   *{box-sizing:border-box;}
   body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;}
   .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
-  h2{margin-top:0;font-size:20px;}
+  .logo{text-align:center;margin-bottom:16px;}
+  .logo img{max-width:140px;max-height:80px;object-fit:contain;}
+  h2{margin-top:0;font-size:20px;text-align:center;color:#16321f;}
+  p.sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
-  input{width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;font-size:15px;}
+  input[type=text],input[type=email],input[type=date],input[type=tel]{width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;font-size:15px;}
   input:focus{outline:none;border-color:#16321f;}
   .hint{font-size:11px;color:#aaa;margin-top:3px;}
-  button{margin-top:20px;width:100%;padding:13px;background:#16321f;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;}
-  .result{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;display:none;}
-  .ok{background:#e6f4ea;color:#16321f;display:block;}
-  .err{background:#fdeaea;color:#a01818;display:block;}
-  .card-link{margin-top:10px;word-break:break-all;}
-  .card-link a{color:#16321f;font-weight:600;}
-  .topbar{max-width:440px;margin:0 auto 12px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#555;}
-  .topbar a{color:#16321f;font-weight:600;text-decoration:none;font-size:13px;}
+  .phone-row{display:flex;gap:8px;align-items:center;}
+  .phone-prefix{padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:15px;background:#f9f9f9;color:#333;white-space:nowrap;}
+  .phone-row input{flex:1;}
+  .check-group{margin-top:18px;display:flex;flex-direction:column;gap:14px;}
+  .check-item{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#444;line-height:1.5;cursor:pointer;}
+  .check-item input[type=checkbox]{width:18px;height:18px;min-width:18px;margin-top:2px;accent-color:#16321f;cursor:pointer;}
+  button{margin-top:22px;width:100%;padding:13px;background:#16321f;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;}
+  button:disabled{background:#aaa;cursor:not-allowed;}
+  .result{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;}
 </style></head>
 <body>
-<div class="topbar">
-  <span>Registro de cliente</span>
-  <a href="/caja">← Volver a caja</a>
-</div>
 <div class="panel">
-  <h2>Nuevo cliente</h2>
+  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
+  <h2>Club de Fidelización</h2>
+  <p class="sub">Regístrate y acumula marcas con cada visita</p>
   <form id="form" autocomplete="off">
-    <label>RUT</label>
-    <input name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required autofocus>
-    <div class="hint">Sin puntos. Ej: 12345678-5</div>
+    <label>RUT *</label>
+    <input type="text" name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required>
+    <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
 
-    <label>Nombre</label>
-    <input name="first_name" placeholder="Juan" required style="text-transform:uppercase;">
+    <label>Nombre *</label>
+    <input type="text" name="first_name" placeholder="Juan" required style="text-transform:uppercase;">
 
-    <label>Apellido</label>
-    <input name="last_name" placeholder="Pérez" required style="text-transform:uppercase;">
+    <label>Apellido *</label>
+    <input type="text" name="last_name" placeholder="Pérez" required style="text-transform:uppercase;">
 
-    <label>Fecha de nacimiento</label>
-    <input name="birth_date" type="date" required>
+    <label>Correo electrónico *</label>
+    <input type="email" name="email" placeholder="juan@correo.com" required>
 
-    <label>Correo electrónico</label>
-    <input name="email" type="email" placeholder="juan@correo.com" required>
+    <label>Teléfono *</label>
+    <div class="phone-row">
+      <span class="phone-prefix">+569</span>
+      <input type="tel" name="phone" placeholder="12345678" maxlength="8" inputmode="numeric" pattern="[0-9]{8}" required>
+    </div>
+    <div class="hint">8 dígitos. Ej: 12345678</div>
 
-    <button type="submit">Registrar cliente</button>
+    <label>Fecha de nacimiento *</label>
+    <input type="date" name="birth_date" required>
+
+    <div class="check-group">
+      <label class="check-item">
+        <input type="checkbox" id="chk1" required>
+        <span>He leído y acepto los <a href="/terminos" target="_blank" style="color:#16321f;font-weight:700;">Términos y Condiciones</a> del Club de Fidelización GETit.</span>
+      </label>
+      <label class="check-item">
+        <input type="checkbox" id="chk2" required>
+        <span>Autorizo a GETit a usar mis datos personales (nombre, correo, teléfono y fecha de nacimiento) para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.</span>
+      </label>
+    </div>
+
+    <button type="submit" id="submitBtn">Crear mi tarjeta</button>
   </form>
   <div id="result"></div>
 </div>
@@ -1646,55 +1669,64 @@ function renderRegisterPage(req, res) {
 function formatRut(val) {
   let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
   if (v.length < 2) return v;
-  const dv = v.slice(-1);
-  const body = v.slice(0, -1);
-  return body + '-' + dv;
+  return v.slice(0,-1) + '-' + v.slice(-1);
 }
-function onRutInput(e) {
-  const sel = e.target.selectionStart;
-  e.target.value = formatRut(e.target.value);
-}
+function onRutInput(e) { e.target.value = formatRut(e.target.value); }
 
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
+  const div = document.getElementById('result');
+
+  if (!document.getElementById('chk1').checked || !document.getElementById('chk2').checked) {
+    showError('Debes aceptar ambas condiciones para continuar.');
+    return;
+  }
+
   const rutRaw = f.rut.value.trim();
   const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
   const rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
-  const firstName = f.first_name.value.trim();
-  const lastName = f.last_name.value.trim();
-  const email = f.email.value.trim();
 
-  const div = document.getElementById('result');
-  div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;display:block;';
-  div.innerHTML = 'Registrando...';
+  const phone = f.phone.value.trim();
+  if (phone.length !== 8 || !/^[0-9]{8}$/.test(phone)) {
+    showError('El teléfono debe tener exactamente 8 dígitos.');
+    return;
+  }
+
+  div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;';
+  div.textContent = 'Registrando...';
+  document.getElementById('submitBtn').disabled = true;
 
   const r = await fetch('/api/customers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       rut,
-      first_name: firstName,
-      last_name: lastName,
+      first_name: f.first_name.value.trim(),
+      last_name: f.last_name.value.trim(),
       birth_date: f.birth_date.value,
-      email,
+      email: f.email.value.trim(),
+      whatsapp_number: '+569' + phone,
       marcas: 0
     })
   });
   const data = await r.json();
 
   if (r.ok) {
-    const link = window.location.origin + data.wallet_link;
-    div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;display:block;';
-    div.innerHTML = '✓ Registro exitoso. Abriendo tu tarjeta...';
-    setTimeout(() => { window.location.href = link; }, 1200);
-    f.reset();
-    document.querySelector('[name=rut]').focus();
+    div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;';
+    div.textContent = '✓ Registro exitoso. Abriendo tu tarjeta...';
+    setTimeout(() => { window.location.href = window.location.origin + data.wallet_link; }, 1200);
   } else {
-    div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#fdeaea;color:#a01818;display:block;';
-    div.textContent = data.error || 'Error al registrar.';
+    showError(data.error || 'Error al registrar.');
+    document.getElementById('submitBtn').disabled = false;
   }
 });
+
+function showError(msg) {
+  const div = document.getElementById('result');
+  div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#fdeaea;color:#a01818;';
+  div.textContent = msg;
+}
 </script>
 </body></html>`);
 }
@@ -1734,7 +1766,7 @@ async function renderCajaPage(req, res) {
   <span>Sesión: ${staff.name} (${staff.role === 'admin' ? 'administrador' : 'cajero'})</span>
   <div style="display:flex;gap:8px;">
     ${staff.role === 'admin' ? '<button onclick="window.location.href=\'/admin\'">Admin</button>' : ''}
-    <button onclick="window.location.href='/registro'">+ Registrar cliente</button>
+
     <button onclick="logout()">Cerrar sesión</button>
   </div>
 </div>
@@ -1994,6 +2026,97 @@ async function renderQrPosterPage(req, res) {
 </body></html>`);
 }
 
+function renderTerminos(req, res) {
+  const fecha = '08 de julio de 2026';
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Términos y Condiciones — Club de Fidelización GETit</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;color:#333;}
+  .wrap{max-width:680px;margin:0 auto;background:#fff;border-radius:12px;padding:32px 28px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+  .logo{text-align:center;margin-bottom:20px;}
+  .logo img{max-width:120px;object-fit:contain;}
+  h1{font-size:20px;color:#16321f;margin-bottom:4px;}
+  .meta{font-size:12px;color:#888;margin-bottom:28px;}
+  h2{font-size:15px;color:#16321f;margin-top:28px;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;}
+  p,li{font-size:14px;line-height:1.7;margin-bottom:8px;}
+  ul{padding-left:20px;}
+  .back{display:inline-block;margin-top:24px;font-size:13px;color:#16321f;font-weight:600;text-decoration:none;}
+  .empresa{background:#f7f7f7;border-radius:8px;padding:12px 16px;font-size:13px;margin-bottom:24px;line-height:1.8;}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
+  <h1>Términos y Condiciones del Club de Fidelización</h1>
+  <div class="meta">Última actualización: ${fecha}</div>
+
+  <div class="empresa">
+    <strong>Razón social:</strong> Convenience de Chile SpA<br>
+    <strong>RUT:</strong> 76.865.177-9<br>
+    <strong>Nombre de fantasía:</strong> Get it (GETit)<br>
+    <strong>Domicilio:</strong> Santiago, Región Metropolitana, Chile
+  </div>
+
+  <h2>1. Aceptación de los términos</h2>
+  <p>Al registrarte en el Club de Fidelización GETit, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones. Si no estás de acuerdo con alguno de ellos, no debes completar el registro.</p>
+
+  <h2>2. El programa de fidelización</h2>
+  <p>El Club de Fidelización GETit es un programa administrado por Convenience de Chile SpA que permite a sus miembros acumular marcas por cada visita o compra realizada en los establecimientos participantes de la marca Get it.</p>
+  <ul>
+    <li>Cada compra válida otorga una (1) marca en la tarjeta digital del cliente.</li>
+    <li>Al completar el número de marcas definido por el programa vigente, el cliente obtiene el derecho a canjear el premio correspondiente.</li>
+    <li>Las marcas no son transferibles, no tienen valor monetario y no pueden canjearse por dinero en efectivo.</li>
+    <li>Convenience de Chile SpA se reserva el derecho de modificar las condiciones del programa, incluyendo la cantidad de marcas requeridas y los premios disponibles, con aviso previo a través de los canales oficiales.</li>
+  </ul>
+
+  <h2>3. Registro y membresía</h2>
+  <p>Para participar en el programa, el cliente debe registrarse proporcionando datos verídicos y actualizados. Cada persona puede tener una sola cuenta asociada a su RUT. El registro es personal e intransferible.</p>
+
+  <h2>4. Tratamiento de datos personales</h2>
+  <p>De conformidad con la Ley N° 19.628 sobre Protección de la Vida Privada y sus modificaciones, Convenience de Chile SpA recopila y trata los siguientes datos personales de sus miembros:</p>
+  <ul>
+    <li>Nombre y apellido</li>
+    <li>RUT</li>
+    <li>Correo electrónico</li>
+    <li>Número de teléfono</li>
+    <li>Fecha de nacimiento</li>
+    <li>Historial de visitas y compras asociadas al programa</li>
+  </ul>
+  <p>Estos datos serán utilizados <strong>exclusivamente</strong> para los siguientes fines:</p>
+  <ul>
+    <li>Gestionar la membresía y tarjeta de fidelización del cliente.</li>
+    <li>Acreditar y registrar marcas y canjes de premios.</li>
+    <li>Enviar comunicaciones sobre ofertas, promociones y beneficios del Club de Fidelización GETit.</li>
+    <li>Mejorar la experiencia del cliente dentro del programa.</li>
+  </ul>
+  <p>Convenience de Chile SpA <strong>no compartirá, venderá ni cederá</strong> los datos personales de sus miembros a terceros sin el consentimiento expreso del titular, salvo que sea requerido por ley o autoridad competente.</p>
+
+  <h2>5. Derechos del titular de datos</h2>
+  <p>Conforme a la legislación vigente, el cliente tiene derecho a:</p>
+  <ul>
+    <li>Acceder a sus datos personales registrados.</li>
+    <li>Rectificar datos incorrectos o desactualizados.</li>
+    <li>Solicitar la eliminación de sus datos y cancelación de su membresía.</li>
+    <li>Revocar el consentimiento para el envío de comunicaciones comerciales.</li>
+  </ul>
+  <p>Para ejercer estos derechos, el cliente puede contactar directamente a un establecimiento Get it o escribir a través de los canales oficiales de la empresa.</p>
+
+  <h2>6. Seguridad de la información</h2>
+  <p>Convenience de Chile SpA adopta medidas técnicas y organizativas razonables para proteger los datos personales de sus miembros contra accesos no autorizados, pérdida o alteración.</p>
+
+  <h2>7. Modificaciones</h2>
+  <p>Convenience de Chile SpA se reserva el derecho de actualizar estos Términos y Condiciones. Las modificaciones serán informadas a través de los canales del programa y entrarán en vigencia desde su publicación. El uso continuado del programa implica la aceptación de los términos actualizados.</p>
+
+  <h2>8. Legislación aplicable</h2>
+  <p>Estos Términos y Condiciones se rigen por las leyes de la República de Chile. Cualquier controversia derivada del presente programa será sometida a los tribunales ordinarios de justicia de Santiago.</p>
+
+  <a class="back" href="/registro">← Volver al registro</a>
+</div>
+</body></html>`);
+}
+
 function renderManifest(req, res) {
   sendJSON(res, 200, {
     name: 'Tarjeta de Fidelización',
@@ -2052,6 +2175,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return getProgram(req, res, pathName.split('/')[4]);
     if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return await updateProgramDesign(req, res, pathName.split('/')[4]);
 
+    if (req.method === 'GET' && pathName === '/terminos') return renderTerminos(req, res);
     sendJSON(res, 404, { error: 'Ruta no encontrada' });
   } catch (err) {
     sendJSON(res, 500, { error: err.message });
