@@ -450,7 +450,7 @@ async function loginStaff(req, res) {
   const { username, password } = body;
   if (!username || !password) return sendJSON(res, 400, { error: 'Usuario y contraseña son obligatorios.' });
 
-  const staff = db.prepare('SELECT * FROM staff_users WHERE username = ? AND active = 1').get(username.trim());
+  const staff = db.prepare('SELECT * FROM staff_users WHERE LOWER(username) = LOWER(?) AND active = 1').get(username.trim());
   if (!staff || !verifyPassword(password, staff.password_hash)) {
     return sendJSON(res, 401, { error: 'Usuario o contraseña incorrectos.' });
   }
@@ -575,7 +575,7 @@ async function createCustomer(req, res) {
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
-      return sendJSON(res, 409, { error: 'RUT ya registrado. Búscalo en caja para agregar marcas.' });
+      return sendJSON(res, 409, { error: 'RUT ya registrado.' });
     }
     sendJSON(res, 500, { error: err.message });
   }
@@ -991,7 +991,7 @@ function renderLoginUnificado(req, res) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
   .panel{max-width:380px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:20px;}
-  .logo img{max-width:${logoWidth}px;max-height:80px;object-fit:contain;}
+  .logo img{max-width:${logoWidth}px;max-height:140px;object-fit:contain;}
   h2{margin-top:0;text-align:center;color:#333;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
   input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
@@ -1233,7 +1233,7 @@ async function createUser(req, res) {
   if (!validRoles.includes(role)) {
     return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier, admin o superadmin.' });
   }
-  if (password.length < 4) {
+  if (role === 'superadmin' && staff.role !== 'superadmin') { return sendJSON(res, 403, { error: 'Solo el administrador principal puede crear un Super Admin.' }); }
     return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
   }
   try {
@@ -1495,7 +1495,7 @@ function renderAdminPage(req, res) {
   .msg{font-size:13px;margin-top:10px;}
   table{width:100%;border-collapse:collapse;font-size:13px;margin-top:16px;}
   th{text-align:left;padding:10px 8px;border-bottom:2px solid #eee;white-space:nowrap;}
-  td{padding:10px 8px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}
+  td{padding:10px 8px;border-bottom:1px solid #f0f0f0;vertical-align:middle;white-space:nowrap;}
   .actbtn{width:auto;margin:0 4px 0 0;padding:5px 10px;font-size:12px;background:#888;}
   .delbtn{background:#a01818;}
   .colorrow{display:flex;gap:8px;align-items:center;margin-top:4px;}
@@ -1591,7 +1591,7 @@ function renderAdminPage(req, res) {
             <input type="url" id="lc_logo" placeholder="https://i.imgur.com/..." oninput="updateLoginPreview()">
             <label>Tamaño del logo (px)</label>
             <div class="rangerow">
-              <input type="range" id="lc_logo_width" min="40" max="51" value="120" oninput="syncRange(this,'lc_logo_width_val');updateLoginPreview()">
+              <input type="range" id="lc_logo_width" min="40" max="200" value="120" oninput="syncRange(this,'lc_logo_width_val');updateLoginPreview()">
               <span class="rangeval" id="lc_logo_width_val">120px</span>
             </div>
             <label>Color de fondo</label>
@@ -1613,7 +1613,7 @@ function renderAdminPage(req, res) {
         <div class="previewcol" style="width:200px;">
           <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px;">Vista previa</div>
           <div id="lp_wrap" style="border-radius:10px;padding:16px;width:180px;font-size:12px;">
-            <div style="text-align:center;margin-bottom:10px;"><img id="lp_logo" style="max-width:80px;max-height:40px;object-fit:contain;"></div>
+            <div style="text-align:center;margin-bottom:10px;"><img id="lp_logo" style="max-width:160px;max-height:100px;object-fit:contain;"></div>
             <div style="font-size:13px;font-weight:700;text-align:center;margin-bottom:10px;color:#333;">Acceso al sistema</div>
             <div style="background:#eee;border-radius:5px;height:28px;margin-bottom:6px;"></div>
             <div style="background:#eee;border-radius:5px;height:28px;margin-bottom:10px;"></div>
@@ -1634,7 +1634,7 @@ function renderAdminPage(req, res) {
             <input type="url" id="rc_logo" placeholder="https://i.imgur.com/..." oninput="updateRegPreview()">
             <label>Tamaño del logo (px)</label>
             <div class="rangerow">
-              <input type="range" id="rc_logo_width" min="40" max="56" value="140" oninput="syncRange(this,'rc_logo_width_val');updateRegPreview()">
+              <input type="range" id="rc_logo_width" min="40" max="200" value="140" oninput="syncRange(this,'rc_logo_width_val');updateRegPreview()">
               <span class="rangeval" id="rc_logo_width_val">140px</span>
             </div>
             <label>Título</label>
@@ -1674,7 +1674,7 @@ function renderAdminPage(req, res) {
         <div class="previewcol" style="width:220px;">
           <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px;">Vista previa</div>
           <div id="reg_preview" style="border-radius:12px;padding:14px;width:200px;font-size:11px;">
-            <div style="text-align:center;margin-bottom:8px;"><img id="rp_logo" style="max-width:90px;max-height:44px;object-fit:contain;"></div>
+            <div style="text-align:center;margin-bottom:8px;"><img id="rp_logo" style="max-width:160px;max-height:100px;object-fit:contain;"></div>
             <div id="rp_titulo" style="font-size:13px;font-weight:700;text-align:center;margin-bottom:2px;"></div>
             <div id="rp_sub" style="font-size:10px;color:#666;text-align:center;margin-bottom:10px;"></div>
             <div id="rp_rut_row"    style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">RUT</div>
@@ -2340,7 +2340,7 @@ function showCreateUserModal() {
   var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
   var sel = document.createElement('select'); sel.id='um_role';
   sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
-  [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; sel.appendChild(o); }); box.appendChild(sel);
+  (CURRENT_ROLE === 'superadmin' ? [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']] : [['cashier','Cajero'],['admin','Administrador']]).forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; sel.appendChild(o); }); box.appendChild(sel);
   var errDiv = document.createElement('div'); errDiv.id='um_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
   var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
   var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Crear usuario'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=submitCreateUser; btnRow.appendChild(bOk);
@@ -2365,7 +2365,7 @@ function showEditUserModal(id) {
   var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
   var sel = document.createElement('select'); sel.id='em_role';
   sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
-  [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; if(u.role===op[0]) o.selected=true; sel.appendChild(o); }); box.appendChild(sel);
+  (CURRENT_ROLE === 'superadmin' ? [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']] : [['cashier','Cajero'],['admin','Administrador']]).forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; if(u.role===op[0]) o.selected=true; sel.appendChild(o); }); box.appendChild(sel);
   var errDiv = document.createElement('div'); errDiv.id='em_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
   var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
   var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Guardar'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=function(){ submitEditUser(u.id); }; btnRow.appendChild(bOk);
@@ -2758,8 +2758,8 @@ function renderRegisterPage(req, res) {
   const showEmail  = cfg.campo_correo !== 0;
   const showTel    = cfg.campo_telefono !== 0;
   const showNac    = cfg.campo_nacimiento !== 0;
-  const chk1 = cfg.chk1_texto || 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.';
-  const chk2 = cfg.chk2_texto || 'Autorizo a GETit a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.';
+  const chk1 = cfg.chk1_texto || 'He leído y acepto los Términos y Condiciones del Club de Fidelización Get it.';
+  const chk2 = cfg.chk2_texto || 'Autorizo a Get it a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.';
   const bgColor = cfg.bg_color || '#f4f4f5';
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
@@ -2770,7 +2770,7 @@ function renderRegisterPage(req, res) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;}
   .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:16px;}
-  .logo img{max-width:${logoWidth}px;max-height:100px;object-fit:contain;}
+  .logo img{max-width:${logoWidth}px;max-height:150px;object-fit:contain;}
   h2{margin-top:0;font-size:20px;text-align:center;color:#16321f;}
   p.sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
@@ -2814,12 +2814,12 @@ function renderRegisterPage(req, res) {
     <div class="hint">8 dígitos. Ej: 12345678</div>` : ''}
 
     ${showNac ? `<label>Fecha de nacimiento</label>
-    <input type="date" name="birth_date">` : ''}
+    <input type="date" name="birth_date" min="1900-01-01" max="2100-12-31">` : ''}
 
     <div class="check-group">
       <label class="check-item">
         <input type="checkbox" id="chk1" required>
-        <span>He leído y acepto los <a href="/terminos" target="_blank" style="color:#16321f;font-weight:700;">Términos y Condiciones</a> del Club de Fidelización GETit.</span>
+        <span>He leído y acepto los <a href="/terminos" target="_blank" style="color:#16321f;font-weight:700;">Términos y Condiciones</a> del Club de Fidelización Get it.</span>
       </label>
       <label class="check-item">
         <input type="checkbox" id="chk2" required>
