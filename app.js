@@ -246,7 +246,7 @@ if (branchCount === 0) {
               VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run('Club de Fidelización', 10, JSON.stringify({ min_amount: 0 }),
          'https://i.imgur.com/nJrUCee.png', 100,
-         '#000000', '#0f1115', '✱', '#d62828', 23);
+         '#000000', '#0f1115', '★', '#d62828', 23);
   db.prepare('INSERT INTO rewards (program_id, name, description, stamps_required) VALUES (?,?,?,?)')
     .run(1, 'Producto gratis', 'Premio al completar 10 marcas', 10);
 }
@@ -1278,7 +1278,7 @@ async function loadCustomers() {
     return '<tr>' +
       '<td>' + c.rut + '</td>' +
       '<td>' + c.first_name + ' ' + c.last_name + '</td>' +
-      '<td>' + (c.birth_date || '—') + '</td>' +
+      '<td>' + (c.birth_date ? c.birth_date.split('-').reverse().join('-') : '—') + '</td>' +
       '<td>' + (c.email || '') + '</td>' +
       '<td style="font-size:12px;">' + (boletas.length ? boletas.join(', ') : '—') + '</td>' +
       '<td style="text-align:center;">' + boletas.length + '</td>' +
@@ -1332,15 +1332,35 @@ async function downloadExcel() {
     if (!purchaseMap[p.customer_id]) purchaseMap[p.customer_id] = [];
     purchaseMap[p.customer_id].push(p.receipt_number);
   });
-  const data = rows.map(c => ({
-    'RUT': c.rut,
-    'Nombre Apellido': c.first_name + ' ' + c.last_name,
-    'Fecha Nacimiento': c.birth_date || '',
-    'Correo': c.email || '',
-    'N° Boletas': (purchaseMap[c.id] || []).join(', '),
-    'Cantidad Boletas': (purchaseMap[c.id] || []).length,
-    'Marcas actuales': c.current_stamps || 0
-  }));
+  const data = [];
+  rows.forEach(c => {
+    const boletas = purchaseMap[c.id] || [];
+    const fechaFmt = c.birth_date ? c.birth_date.split('-').reverse().join('-') : '';
+    if (boletas.length === 0) {
+      data.push({
+        'RUT': c.rut,
+        'Nombre Apellido': c.first_name + ' ' + c.last_name,
+        'Fecha Nacimiento': fechaFmt,
+        'Correo': c.email || '',
+        'N° Boleta': '',
+        'Marca': '',
+        'Premio': ''
+      });
+    } else {
+      boletas.forEach((boleta, idx) => {
+        const numCompra = idx + 1;
+        data.push({
+          'RUT': c.rut,
+          'Nombre Apellido': c.first_name + ' ' + c.last_name,
+          'Fecha Nacimiento': fechaFmt,
+          'Correo': c.email || '',
+          'N° Boleta': boleta,
+          'Marca': 1,
+          'Premio': numCompra % 10 === 0 ? 'SI' : ''
+        });
+      });
+    }
+  });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Clientes');
   XLSX.writeFile(wb, 'clientes-getit-' + new Date().toISOString().slice(0,10) + '.xlsx');
@@ -1525,12 +1545,26 @@ function renderMiTarjetaPage(req, res) {
   <h1>Ver mi tarjeta</h1>
   <p>Ingresa tu RUT para acceder a tu tarjeta de fidelización y ver tus marcas acumuladas.</p>
   <label>RUT (sin puntos, con guión)</label>
-  <input type="text" id="rutInput" placeholder="12345678-5" autofocus>
+  <input type="text" id="rutInput" placeholder="12.345.678-5" oninput="onRutInput(event)" autofocus>
   <button onclick="buscar()">Ver mi tarjeta</button>
   <div class="err" id="errMsg"></div>
   <p class="hint">¿Aún no estás registrado? <a href="/registro" style="color:#16321f;">Regístrate aquí</a></p>
 </div>
 <script>
+
+function formatRut(val) {
+  let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (v.length < 2) return v;
+  const dv = v.slice(-1);
+  let body = v.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return body + '-' + dv;
+}
+function onRutInput(e) {
+  const pos = e.target.selectionStart;
+  const prev = e.target.value;
+  const formatted = formatRut(prev);
+  e.target.value = formatted;
+}
 document.getElementById('rutInput').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') buscar();
 });
@@ -1593,7 +1627,7 @@ function renderRegisterPage(req, res) {
   <h2>Nuevo cliente</h2>
   <form id="form" autocomplete="off">
     <label>RUT</label>
-    <input name="rut" placeholder="12345678-5" required autofocus>
+    <input name="rut" placeholder="12.345.678-5" oninput="onRutInput(event)" required autofocus>
     <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
 
     <label>Nombre</label>
@@ -1610,7 +1644,7 @@ function renderRegisterPage(req, res) {
 
     <button type="submit">Registrar cliente</button>
   </form>
-  <div id="result" class="result"></div>
+  <div id="result"></div>
 </div>
 <script>
 document.getElementById('form').addEventListener('submit', async (e) => {
@@ -1703,7 +1737,7 @@ async function renderCajaPage(req, res) {
   </div>
   <form id="searchFormRut">
     <label>RUT del cliente (sin puntos, con guión)</label>
-    <input name="rut" placeholder="12345678-5" required>
+    <input name="rut" placeholder="12.345.678-5" oninput="onRutInput(event)" required>
     <button type="submit">Buscar</button>
   </form>
   <form id="searchFormCode" style="display:none;">
@@ -1719,7 +1753,7 @@ async function renderCajaPage(req, res) {
     <form id="purchaseForm">
       <input type="hidden" name="card_token" id="cardToken">
       <label>N° de boleta</label>
-      <input name="receipt_number" required>
+      <input name="receipt_number" type="number" min="1" placeholder="9642630" required>
       <label>Categoría (opcional)</label>
       <input name="category" placeholder="ej. comida">
       <button type="submit">Registrar compra y asignar marca</button>
@@ -1730,6 +1764,15 @@ async function renderCajaPage(req, res) {
 </div>
 <script>
 let currentToken = null;
+
+function formatRut(val) {
+  let v = val.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (v.length < 2) return v;
+  const dv = v.slice(-1);
+  let body = v.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return body + '-' + dv;
+}
+function onRutInput(e) { e.target.value = formatRut(e.target.value); }
 
 function switchTab(tab) {
   document.getElementById('tabRut').classList.toggle('active', tab === 'rut');
