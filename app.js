@@ -224,72 +224,110 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_registry_rut ON loyalty_registry(rut)');
 } catch (e) { /* ya existe */ }
 
-// Configuración editable del formulario de registro
+// ── Tablas de configuración editable ─────────────────────────
+// registro_config
+db.exec(`CREATE TABLE IF NOT EXISTS registro_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+  logo_width INTEGER DEFAULT 140,
+  titulo TEXT DEFAULT 'Club de Fidelización',
+  subtitulo TEXT DEFAULT 'Regístrate y acumula marcas con tus compras',
+  bg_color TEXT DEFAULT '#f4f4f5',
+  btn_color TEXT DEFAULT '#16321f',
+  btn_texto TEXT DEFAULT 'Crear mi tarjeta',
+  campo_rut INTEGER DEFAULT 1,
+  campo_nombre INTEGER DEFAULT 1,
+  campo_apellido INTEGER DEFAULT 1,
+  campo_correo INTEGER DEFAULT 1,
+  campo_telefono INTEGER DEFAULT 1,
+  campo_nacimiento INTEGER DEFAULT 1,
+  chk1_texto TEXT DEFAULT 'He leído y acepto los Términos y Condiciones del Club de Fidelización Get it.',
+  chk2_texto TEXT DEFAULT 'Autorizo a Get it a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.',
+  tyc_texto TEXT DEFAULT ''
+)`);
+try { db.exec("ALTER TABLE registro_config ADD COLUMN logo_width INTEGER DEFAULT 140"); } catch(e) {}
+try { db.exec("ALTER TABLE registro_config ADD COLUMN bg_color TEXT DEFAULT '#f4f4f5'"); } catch(e) {}
+try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_rut INTEGER DEFAULT 1"); } catch(e) {}
+try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_nombre INTEGER DEFAULT 1"); } catch(e) {}
+try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_apellido INTEGER DEFAULT 1"); } catch(e) {}
 try {
-  db.exec(`CREATE TABLE IF NOT EXISTS registro_config (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
-    titulo TEXT DEFAULT 'Club de Fidelización',
-    subtitulo TEXT DEFAULT 'Regístrate y acumula marcas con tus compras',
-    bg_color TEXT DEFAULT '#f4f4f5',
-    btn_color TEXT DEFAULT '#16321f',
-    btn_texto TEXT DEFAULT 'Crear mi tarjeta',
-    campo_rut INTEGER DEFAULT 1,
-    campo_nombre INTEGER DEFAULT 1,
-    campo_apellido INTEGER DEFAULT 1,
-    campo_correo INTEGER DEFAULT 1,
-    campo_telefono INTEGER DEFAULT 1,
-    campo_nacimiento INTEGER DEFAULT 1,
-    chk1_texto TEXT DEFAULT 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.',
-    chk2_texto TEXT DEFAULT 'Autorizo a GETit a usar mis datos personales (nombre, correo, teléfono y fecha de nacimiento) para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.',
-    tyc_texto TEXT DEFAULT ''
-  )`);
-  const exists = db.prepare('SELECT id FROM registro_config WHERE id = 1').get();
-  if (!exists) db.prepare('INSERT INTO registro_config (id) VALUES (1)').run();
-  // Migración: agregar bg_color si no existe
-  try { db.exec("ALTER TABLE registro_config ADD COLUMN bg_color TEXT DEFAULT '#f4f4f5'"); } catch(e) {}
-  try { db.exec("ALTER TABLE registro_config ADD COLUMN logo_width INTEGER DEFAULT 140"); } catch(e) {}
-  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_rut INTEGER DEFAULT 1"); } catch(e) {}
-  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_nombre INTEGER DEFAULT 1"); } catch(e) {}
-  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_apellido INTEGER DEFAULT 1"); } catch(e) {}
+  const existsRC = db.prepare('SELECT id FROM registro_config WHERE id = 1').get();
+  if (!existsRC) {
+    db.prepare(`INSERT INTO registro_config (id, logo_url, logo_width, titulo, subtitulo, bg_color, btn_color, btn_texto, campo_rut, campo_nombre, campo_apellido, campo_correo, campo_telefono, campo_nacimiento, chk1_texto, chk2_texto) VALUES (1,'https://i.imgur.com/nJrUCee.png',140,'Club de Fidelización','Regístrate y acumula marcas con tus compras','#f4f4f5','#16321f','Crear mi tarjeta',1,1,1,1,1,1,'He leído y acepto los Términos y Condiciones del Club de Fidelización Get it.','Autorizo a Get it a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.')`).run();
+  } else {
+    db.prepare("UPDATE registro_config SET logo_url=COALESCE(logo_url,'https://i.imgur.com/nJrUCee.png'), titulo=COALESCE(titulo,'Club de Fidelización'), subtitulo=COALESCE(subtitulo,'Regístrate y acumula marcas con tus compras'), bg_color=COALESCE(bg_color,'#f4f4f5'), btn_color=COALESCE(btn_color,'#16321f'), btn_texto=COALESCE(btn_texto,'Crear mi tarjeta') WHERE id=1").run();
+  }
+} catch(e) { console.error('registro_config init error:', e.message); }
 
-  db.exec(`CREATE TABLE IF NOT EXISTS login_config (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
-    logo_width INTEGER DEFAULT 120,
-    bg_color TEXT DEFAULT '#f4f4f5',
-    btn_color TEXT DEFAULT '#16321f',
-    btn_texto TEXT DEFAULT 'Ingresar'
-  )`);
-  try { db.exec('ALTER TABLE login_config ADD COLUMN logo_width INTEGER DEFAULT 120'); } catch(e) {}
-  // TyC config
-  db.exec(`CREATE TABLE IF NOT EXISTS tyc_config (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
-    logo_width INTEGER DEFAULT 120,
-    bg_color TEXT DEFAULT '#f4f4f5',
-    card_color TEXT DEFAULT '#ffffff',
-    title_color TEXT DEFAULT '#16321f',
-    h2_color TEXT DEFAULT '#16321f',
-    text_color TEXT DEFAULT '#333333',
-    razon_social TEXT DEFAULT 'Convenience de Chile SPA',
-    rut TEXT DEFAULT '76.865.177-9',
-    nombre_fantasia TEXT DEFAULT 'Get it',
-    domicilio TEXT DEFAULT 'Santiago, Región Metropolitana, Chile',
-    titulo TEXT DEFAULT 'Términos y Condiciones del Club de Fidelización',
-    fecha_actualizacion TEXT DEFAULT '08 de julio de 2026',
-    s1_titulo TEXT, s1_texto TEXT,
-    s2_titulo TEXT, s2_texto TEXT,
-    s3_titulo TEXT, s3_texto TEXT,
-    s4_titulo TEXT, s4_texto TEXT,
-    s5_titulo TEXT, s5_texto TEXT,
-    s6_titulo TEXT, s6_texto TEXT,
-    s7_titulo TEXT, s7_texto TEXT,
-    s8_titulo TEXT, s8_texto TEXT
-  )`);
+// login_config
+db.exec(`CREATE TABLE IF NOT EXISTS login_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+  logo_width INTEGER DEFAULT 120,
+  bg_color TEXT DEFAULT '#f4f4f5',
+  btn_color TEXT DEFAULT '#16321f',
+  btn_texto TEXT DEFAULT 'Ingresar'
+)`);
+try { db.exec("ALTER TABLE login_config ADD COLUMN logo_width INTEGER DEFAULT 120"); } catch(e) {}
+try {
+  const existsLC = db.prepare('SELECT id FROM login_config WHERE id = 1').get();
+  if (!existsLC) {
+    db.prepare("INSERT INTO login_config (id, logo_url, logo_width, bg_color, btn_color, btn_texto) VALUES (1,'https://i.imgur.com/nJrUCee.png',120,'#f4f4f5','#16321f','Ingresar')").run();
+  } else {
+    db.prepare("UPDATE login_config SET logo_url=COALESCE(logo_url,'https://i.imgur.com/nJrUCee.png'), logo_width=COALESCE(logo_width,120), bg_color=COALESCE(bg_color,'#f4f4f5'), btn_color=COALESCE(btn_color,'#16321f'), btn_texto=COALESCE(btn_texto,'Ingresar') WHERE id=1").run();
+  }
+} catch(e) { console.error('login_config init error:', e.message); }
+
+// tyc_config
+db.exec(`CREATE TABLE IF NOT EXISTS tyc_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+  logo_width INTEGER DEFAULT 120,
+  bg_color TEXT DEFAULT '#f4f4f5',
+  card_color TEXT DEFAULT '#ffffff',
+  title_color TEXT DEFAULT '#16321f',
+  h2_color TEXT DEFAULT '#16321f',
+  text_color TEXT DEFAULT '#333333',
+  razon_social TEXT DEFAULT 'Convenience de Chile SPA',
+  rut TEXT DEFAULT '76.865.177-9',
+  nombre_fantasia TEXT DEFAULT 'Get it',
+  domicilio TEXT DEFAULT 'Santiago, Región Metropolitana, Chile',
+  titulo TEXT DEFAULT 'Términos y Condiciones del Club de Fidelización',
+  fecha_actualizacion TEXT DEFAULT '08 de julio de 2026',
+  s1_titulo TEXT DEFAULT '1. Aceptación de los términos',
+  s1_texto TEXT DEFAULT 'Al registrarte en el Club de Fidelización Get it, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones. Si no estás de acuerdo con alguno de ellos, no debes completar el registro.',
+  s2_titulo TEXT DEFAULT '2. El programa de fidelización',
+  s2_texto TEXT DEFAULT 'El Club de Fidelización Get it es un programa administrado por Convenience de Chile SPA que permite a sus miembros acumular marcas por cada visita o compra realizada en los establecimientos participantes de la marca Get it.',
+  s3_titulo TEXT DEFAULT '3. Registro y membresía',
+  s3_texto TEXT DEFAULT 'Para participar en el programa, el cliente debe registrarse proporcionando datos verídicos y actualizados. Cada persona puede tener una sola cuenta asociada a su RUT. El registro es personal e intransferible.',
+  s4_titulo TEXT DEFAULT '4. Tratamiento de datos personales',
+  s4_texto TEXT DEFAULT 'De conformidad con la Ley N° 19.628 sobre Protección de la Vida Privada, Convenience de Chile SPA trata los datos personales exclusivamente para gestionar la membresía, acreditar marcas y canjes, y enviar comunicaciones sobre beneficios del Club. No compartirá estos datos a terceros sin consentimiento expreso del titular, salvo requerimiento legal.',
+  s5_titulo TEXT DEFAULT '5. Derechos del titular de datos',
+  s5_texto TEXT DEFAULT 'Conforme a la Ley N° 19.628, el cliente tiene derecho a acceder, rectificar y solicitar la eliminación de sus datos personales, así como revocar el consentimiento para comunicaciones comerciales. Para ejercer estos derechos, puede contactar directamente a un establecimiento Get it.',
+  s6_titulo TEXT DEFAULT '6. Seguridad de la información',
+  s6_texto TEXT DEFAULT 'Convenience de Chile SPA adopta medidas técnicas y organizativas razonables para proteger los datos personales de sus miembros contra accesos no autorizados, pérdida o alteración.',
+  s7_titulo TEXT DEFAULT '7. Modificaciones',
+  s7_texto TEXT DEFAULT 'Convenience de Chile SPA se reserva el derecho de actualizar estos Términos y Condiciones. Las modificaciones serán informadas a través de los canales del programa y entrarán en vigencia desde su publicación. El uso continuado del programa implica la aceptación de los términos actualizados.',
+  s8_titulo TEXT DEFAULT '8. Legislación aplicable',
+  s8_texto TEXT DEFAULT 'Estos Términos y Condiciones se rigen por las leyes de la República de Chile. Cualquier controversia derivada del presente programa será sometida a los tribunales ordinarios de justicia de Santiago.'
+)`);
+try {
   const existsTyc = db.prepare('SELECT id FROM tyc_config WHERE id = 1').get();
-  if (!existsTyc) db.prepare('INSERT INTO tyc_config (id) VALUES (1)').run();
-} catch (e) { /* ya existe */ }
+  if (!existsTyc) {
+    db.prepare("INSERT INTO tyc_config (id) VALUES (1)").run();
+  }
+  // Rellenar NULLs con defaults (para filas existentes)
+  db.prepare("UPDATE tyc_config SET logo_url=COALESCE(logo_url,'https://i.imgur.com/nJrUCee.png'), logo_width=COALESCE(logo_width,120), bg_color=COALESCE(bg_color,'#f4f4f5'), card_color=COALESCE(card_color,'#ffffff'), title_color=COALESCE(title_color,'#16321f'), h2_color=COALESCE(h2_color,'#16321f'), text_color=COALESCE(text_color,'#333333'), razon_social=COALESCE(razon_social,'Convenience de Chile SPA'), rut=COALESCE(rut,'76.865.177-9'), nombre_fantasia=COALESCE(nombre_fantasia,'Get it'), domicilio=COALESCE(domicilio,'Santiago, Región Metropolitana, Chile'), titulo=COALESCE(titulo,'Términos y Condiciones del Club de Fidelización'), fecha_actualizacion=COALESCE(fecha_actualizacion,'08 de julio de 2026'), s1_titulo=COALESCE(s1_titulo,'1. Aceptación de los términos'), s1_texto=COALESCE(s1_texto,'Al registrarte en el Club de Fidelización Get it, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones.'), s2_titulo=COALESCE(s2_titulo,'2. El programa de fidelización'), s2_texto=COALESCE(s2_texto,'El Club de Fidelización Get it es un programa administrado por Convenience de Chile SPA.'), s3_titulo=COALESCE(s3_titulo,'3. Registro y membresía'), s3_texto=COALESCE(s3_texto,'Para participar, el cliente debe registrarse con datos verídicos. El registro es personal e intransferible.'), s4_titulo=COALESCE(s4_titulo,'4. Tratamiento de datos personales'), s4_texto=COALESCE(s4_texto,'De conformidad con la Ley N° 19.628, Convenience de Chile SPA trata los datos personales exclusivamente para gestionar la membresía y enviar comunicaciones sobre beneficios del Club.'), s5_titulo=COALESCE(s5_titulo,'5. Derechos del titular'), s5_texto=COALESCE(s5_texto,'El cliente tiene derecho a acceder, rectificar y eliminar sus datos, y revocar el consentimiento para comunicaciones comerciales.'), s6_titulo=COALESCE(s6_titulo,'6. Seguridad'), s6_texto=COALESCE(s6_texto,'Convenience de Chile SPA adopta medidas razonables para proteger los datos personales.'), s7_titulo=COALESCE(s7_titulo,'7. Modificaciones'), s7_texto=COALESCE(s7_texto,'Convenience de Chile SPA se reserva el derecho de actualizar estos Términos con aviso previo.'), s8_titulo=COALESCE(s8_titulo,'8. Legislación aplicable'), s8_texto=COALESCE(s8_texto,'Estos Términos se rigen por las leyes de Chile. Las controversias se someterán a los tribunales de Santiago.') WHERE id=1").run();
+} catch(e) { console.error('tyc_config init error:', e.message); }
+
+
+// Migración de datos: rellenar NULLs con defaults en filas ya existentes
+try {
+  db.prepare("UPDATE login_config SET logo_url=COALESCE(logo_url,'https://i.imgur.com/nJrUCee.png'), logo_width=COALESCE(logo_width,120), bg_color=COALESCE(bg_color,'#f4f4f5'), btn_color=COALESCE(btn_color,'#16321f'), btn_texto=COALESCE(btn_texto,'Ingresar') WHERE id=1").run();
+} catch(e) {}
+try {
+  db.prepare("UPDATE tyc_config SET logo_url=COALESCE(logo_url,'https://i.imgur.com/nJrUCee.png'), logo_width=COALESCE(logo_width,120), bg_color=COALESCE(bg_color,'#f4f4f5'), card_color=COALESCE(card_color,'#ffffff'), title_color=COALESCE(title_color,'#16321f'), h2_color=COALESCE(h2_color,'#16321f'), text_color=COALESCE(text_color,'#333333'), razon_social=COALESCE(razon_social,'Convenience de Chile SPA'), rut=COALESCE(rut,'76.865.177-9'), nombre_fantasia=COALESCE(nombre_fantasia,'Get it'), domicilio=COALESCE(domicilio,'Santiago, Región Metropolitana, Chile'), titulo=COALESCE(titulo,'Términos y Condiciones del Club de Fidelización'), fecha_actualizacion=COALESCE(fecha_actualizacion,'08 de julio de 2026'), s1_titulo=COALESCE(s1_titulo,'1. Aceptación de los términos'), s1_texto=COALESCE(s1_texto,'Al registrarte en el Club de Fidelización Get it, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones.'), s2_titulo=COALESCE(s2_titulo,'2. El programa de fidelización'), s2_texto=COALESCE(s2_texto,'El Club de Fidelización Get it es un programa administrado por Convenience de Chile SPA.'), s3_titulo=COALESCE(s3_titulo,'3. Registro y membresía'), s3_texto=COALESCE(s3_texto,'El cliente debe registrarse proporcionando datos verídicos. El registro es personal e intransferible.'), s4_titulo=COALESCE(s4_titulo,'4. Tratamiento de datos personales'), s4_texto=COALESCE(s4_texto,'De conformidad con la Ley N° 19.628, Convenience de Chile SPA trata los datos personales exclusivamente para gestionar la membresía y enviar comunicaciones sobre beneficios del Club.'), s5_titulo=COALESCE(s5_titulo,'5. Derechos del titular'), s5_texto=COALESCE(s5_texto,'El cliente tiene derecho a acceder, rectificar y eliminar sus datos, y revocar el consentimiento para comunicaciones comerciales.'), s6_titulo=COALESCE(s6_titulo,'6. Seguridad'), s6_texto=COALESCE(s6_texto,'Convenience de Chile SPA adopta medidas razonables para proteger los datos personales.'), s7_titulo=COALESCE(s7_titulo,'7. Modificaciones'), s7_texto=COALESCE(s7_texto,'Convenience de Chile SPA se reserva el derecho de actualizar estos Términos y Condiciones con aviso previo.'), s8_titulo=COALESCE(s8_titulo,'8. Legislación aplicable'), s8_texto=COALESCE(s8_texto,'Estos Términos se rigen por las leyes de Chile. Las controversias se someterán a los tribunales de Santiago.') WHERE id=1").run();
+} catch(e) {}
 
 function genShortCode() {
   const digits = '0123456789';
@@ -1494,7 +1532,6 @@ function renderAdminPage(req, res) {
 <div class="wrap">
   <div class="tabs">
     <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchAdminTab('clientes')">Clientes</button>
-    ${staff.role === 'superadmin' ? `<button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>` : ''}
     ${staff.role === 'superadmin' ? `<button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz editable</button>` : ''}
     <button type="button" class="tabbtn" id="tabBtnUsuarios" onclick="switchAdminTab('usuarios')">Usuarios</button>
   </div>
