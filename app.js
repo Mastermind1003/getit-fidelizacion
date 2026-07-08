@@ -225,6 +225,27 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_registry_rut ON loyalty_registry(rut)');
 } catch (e) { /* ya existe */ }
 
+// Configuración editable del formulario de registro
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS registro_config (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+    titulo TEXT DEFAULT 'Club de Fidelización',
+    subtitulo TEXT DEFAULT 'Regístrate y acumula marcas con tus compras',
+    btn_color TEXT DEFAULT '#16321f',
+    btn_texto TEXT DEFAULT 'Crear mi tarjeta',
+    campo_telefono INTEGER DEFAULT 1,
+    campo_nacimiento INTEGER DEFAULT 1,
+    campo_correo INTEGER DEFAULT 1,
+    chk1_texto TEXT DEFAULT 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.',
+    chk2_texto TEXT DEFAULT 'Autorizo a GETit a usar mis datos personales (nombre, correo, teléfono y fecha de nacimiento) para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.',
+    tyc_texto TEXT DEFAULT ''
+  )`);
+  // Insertar fila default si no existe
+  const exists = db.prepare('SELECT id FROM registro_config WHERE id = 1').get();
+  if (!exists) db.prepare('INSERT INTO registro_config (id) VALUES (1)').run();
+} catch (e) { /* ya existe */ }
+
 function genShortCode() {
   const digits = '0123456789';
   let part = (len) => Array.from({ length: len }, () => digits[Math.floor(Math.random() * digits.length)]).join('');
@@ -837,6 +858,76 @@ async function updateProgramDesign(req, res, id) {
   sendJSON(res, 200, { updated: true, program: { id: Number(id), ...updated } });
 }
 
+function renderLoginUnificado(req, res) {
+  // Si ya tiene sesión válida, redirigir según rol
+  const staff = getAuthenticatedStaff(req);
+  if (staff) {
+    res.writeHead(302, { Location: staff.role === 'admin' ? '/admin' : '/caja' });
+    return res.end();
+  }
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acceso — GETit</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
+  .panel{max-width:380px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+  .logo{text-align:center;margin-bottom:20px;}
+  .logo img{max-width:120px;max-height:60px;object-fit:contain;}
+  h2{margin-top:0;text-align:center;color:#16321f;}
+  label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
+  input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
+  input:focus{outline:none;border-color:#16321f;}
+  .pwdwrap{position:relative;}
+  .pwdwrap input{padding-right:40px;}
+  .eyebtn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;margin:0;width:auto;color:#666;}
+  button[type=submit]{margin-top:20px;width:100%;padding:12px;background:#16321f;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;font-weight:600;}
+  .err{margin-top:14px;padding:12px;border-radius:8px;font-size:14px;background:#fdeaea;color:#a01818;display:none;}
+</style></head>
+<body>
+<div class="panel">
+  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
+  <h2>Acceso al sistema</h2>
+  <form id="loginForm">
+    <label>Usuario</label>
+    <input name="username" type="text" required autofocus>
+    <label>Contraseña</label>
+    <div class="pwdwrap">
+      <input name="password" type="password" id="pwdInput" required>
+      <button type="button" class="eyebtn" onclick="togglePwd()">👁</button>
+    </div>
+    <button type="submit">Ingresar</button>
+  </form>
+  <div class="err" id="loginErr"></div>
+</div>
+<script>
+function togglePwd() {
+  const i = document.getElementById('pwdInput');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const r = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: f.username.value, password: f.password.value })
+  });
+  const data = await r.json();
+  const err = document.getElementById('loginErr');
+  if (r.ok) {
+    // Redirigir según rol
+    window.location.href = data.staff.role === 'admin' ? '/admin' : '/caja';
+  } else {
+    err.style.display = 'block';
+    err.textContent = data.error || 'Usuario o contraseña incorrectos.';
+  }
+});
+</script>
+</body></html>`);
+}
+
 function renderLoginPage(res, redirectPath, title) {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
@@ -1003,6 +1094,23 @@ async function importSales(req, res) {
   sendJSON(res, 200, { inserted });
 }
 
+function getRegistroConfig(req, res) {
+  const cfg = db.prepare('SELECT * FROM registro_config WHERE id = 1').get();
+  sendJSON(res, 200, cfg || {});
+}
+
+async function updateRegistroConfig(req, res) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const fields = ['logo_url','titulo','subtitulo','btn_color','btn_texto',
+    'campo_telefono','campo_nacimiento','campo_correo','chk1_texto','chk2_texto','tyc_texto'];
+  const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
+  const vals = fields.filter(f => body[f] !== undefined).map(f => body[f]);
+  if (sets) db.prepare(`UPDATE registro_config SET ${sets} WHERE id = 1`).run(...vals);
+  sendJSON(res, 200, { updated: true });
+}
+
 function clearSalesDetail(req, res) {
   const staff = requireAdmin(req, res);
   if (!staff) return;
@@ -1158,6 +1266,7 @@ function renderAdminPage(req, res) {
   <div class="tabs">
     <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchAdminTab('clientes')">Clientes</button>
     <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>
+    <button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz de registro</button>
   </div>
 
   <!-- PESTAÑA CLIENTES -->
@@ -1186,6 +1295,75 @@ function renderAdminPage(req, res) {
       </table>
     </div>
     <div id="detailPanel" style="display:none;margin-top:20px;border-top:2px solid #eee;padding-top:16px;"></div>
+  </div>
+
+  <!-- PESTAÑA INTERFAZ DE REGISTRO -->
+  <div id="tabRegistro" style="display:none;">
+    <div class="panel">
+      <div class="design-wrap">
+        <div class="formcol">
+          <h2>Interfaz de registro</h2>
+          <form onsubmit="saveRegistroConfig(event)">
+            <label>Logo (URL)</label>
+            <input type="url" id="rc_logo" placeholder="https://i.imgur.com/..." oninput="updateRegPreview()">
+            <label>Título</label>
+            <input type="text" id="rc_titulo" oninput="updateRegPreview()">
+            <label>Subtítulo</label>
+            <input type="text" id="rc_subtitulo" oninput="updateRegPreview()">
+            <label>Color del botón</label>
+            <div class="colorrow">
+              <input type="color" id="rc_btn_color_picker" oninput="syncRegColor(this.value)">
+              <input type="text" id="rc_btn_color" oninput="syncRegColorText(this.value)">
+            </div>
+            <label>Texto del botón</label>
+            <input type="text" id="rc_btn_texto" oninput="updateRegPreview()">
+
+            <label style="margin-top:18px;">Campos visibles</label>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
+                <input type="checkbox" id="rc_telefono" onchange="updateRegPreview()"> Teléfono
+              </label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
+                <input type="checkbox" id="rc_nacimiento" onchange="updateRegPreview()"> Fecha de nacimiento
+              </label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
+                <input type="checkbox" id="rc_correo" onchange="updateRegPreview()"> Correo electrónico
+              </label>
+            </div>
+
+            <label style="margin-top:18px;">Texto checkbox 1 (Términos)</label>
+            <textarea id="rc_chk1" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
+
+            <label>Texto checkbox 2 (Datos personales)</label>
+            <textarea id="rc_chk2" rows="4" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
+
+            <label>Términos y Condiciones (texto completo)</label>
+            <div style="font-size:11px;color:#888;margin-bottom:6px;">Este texto aparece en la página /terminos que el cliente puede abrir desde el registro.</div>
+            <textarea id="rc_tyc" rows="10" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;font-family:monospace;"></textarea>
+
+            <button type="submit" style="margin-top:18px;">Guardar cambios</button>
+            <div class="msg" id="rc_msg"></div>
+          </form>
+        </div>
+        <div class="previewcol" style="width:240px;">
+          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px;">Vista previa</div>
+          <div id="reg_preview" style="background:#f4f4f5;border-radius:12px;padding:16px;width:220px;font-family:-apple-system,system-ui,sans-serif;font-size:12px;">
+            <div style="text-align:center;margin-bottom:10px;"><img id="rp_logo" style="max-width:100px;max-height:50px;object-fit:contain;"></div>
+            <div id="rp_titulo" style="font-size:14px;font-weight:700;text-align:center;color:#16321f;margin-bottom:2px;"></div>
+            <div id="rp_sub" style="font-size:11px;color:#666;text-align:center;margin-bottom:12px;"></div>
+            <div style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
+            <div style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
+            <div id="rp_email_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
+            <div id="rp_tel_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
+            <div id="rp_nac_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:10px;"></div>
+            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;font-size:10px;color:#444;"><div style="width:12px;height:12px;min-width:12px;border:1.5px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk1" style="line-height:1.4;"></span></div>
+            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px;font-size:10px;color:#444;"><div style="width:12px;height:12px;min-width:12px;border:1.5px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk2" style="line-height:1.4;"></span></div>
+            <div id="rp_btn" style="border-radius:7px;padding:8px;text-align:center;color:#fff;font-weight:700;font-size:12px;"></div>
+          </div>
+          <div style="font-size:11px;color:#999;margin-top:8px;">Vista previa en vivo</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- PESTAÑA DISEÑO -->
@@ -1252,11 +1430,14 @@ function renderAdminPage(req, res) {
 </div>
 <script>
 function switchAdminTab(tab) {
+  ['clientes','diseno','registro'].forEach(t => {
+    document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'tabbtn' + (tab === t ? ' active' : '');
+  });
   document.getElementById('tabClientes').style.display = tab === 'clientes' ? 'block' : 'none';
-  document.getElementById('tabDiseno').style.display  = tab === 'diseno'   ? 'block' : 'none';
-  document.getElementById('tabBtnClientes').className = 'tabbtn' + (tab === 'clientes' ? ' active' : '');
-  document.getElementById('tabBtnDiseno').className   = 'tabbtn' + (tab === 'diseno'   ? ' active' : '');
+  document.getElementById('tabDiseno').style.display   = tab === 'diseno'   ? 'block' : 'none';
+  document.getElementById('tabRegistro').style.display = tab === 'registro' ? 'block' : 'none';
   if (tab === 'clientes') loadCustomers();
+  if (tab === 'registro') loadRegistroConfig();
 }
 
 async function logout() {
@@ -1425,6 +1606,81 @@ async function saveProgram(e, id) {
   const r = await fetch('/api/admin/programs/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const msg = document.getElementById('msg-' + id);
   msg.textContent = r.ok ? '✓ Diseño guardado.' : 'Error al guardar.';
+  msg.style.color = r.ok ? '#16321f' : '#a01818';
+}
+
+async function loadRegistroConfig() {
+  const r = await fetch('/api/admin/registro-config');
+  const cfg = await r.json();
+  document.getElementById('rc_logo').value = cfg.logo_url || '';
+  document.getElementById('rc_titulo').value = cfg.titulo || '';
+  document.getElementById('rc_subtitulo').value = cfg.subtitulo || '';
+  document.getElementById('rc_btn_color').value = cfg.btn_color || '#16321f';
+  document.getElementById('rc_btn_color_picker').value = cfg.btn_color || '#16321f';
+  document.getElementById('rc_btn_texto').value = cfg.btn_texto || '';
+  document.getElementById('rc_telefono').checked = cfg.campo_telefono !== 0;
+  document.getElementById('rc_nacimiento').checked = cfg.campo_nacimiento !== 0;
+  document.getElementById('rc_correo').checked = cfg.campo_correo !== 0;
+  document.getElementById('rc_chk1').value = cfg.chk1_texto || '';
+  document.getElementById('rc_chk2').value = cfg.chk2_texto || '';
+  document.getElementById('rc_tyc').value = cfg.tyc_texto || '';
+  updateRegPreview();
+}
+
+function syncRegColor(val) {
+  document.getElementById('rc_btn_color').value = val;
+  updateRegPreview();
+}
+function syncRegColorText(val) {
+  if (/^#[0-9A-Fa-f]{6}$/.test(val.trim())) {
+    document.getElementById('rc_btn_color_picker').value = val.trim();
+    updateRegPreview();
+  }
+}
+
+function updateRegPreview() {
+  const logo = document.getElementById('rc_logo').value;
+  const titulo = document.getElementById('rc_titulo').value;
+  const sub = document.getElementById('rc_subtitulo').value;
+  const btnColor = document.getElementById('rc_btn_color').value || '#16321f';
+  const btnTexto = document.getElementById('rc_btn_texto').value;
+  const showTel = document.getElementById('rc_telefono').checked;
+  const showNac = document.getElementById('rc_nacimiento').checked;
+  const showEmail = document.getElementById('rc_correo').checked;
+  const chk1 = document.getElementById('rc_chk1').value;
+  const chk2 = document.getElementById('rc_chk2').value;
+  document.getElementById('rp_logo').src = logo;
+  document.getElementById('rp_logo').style.display = logo ? 'inline' : 'none';
+  document.getElementById('rp_titulo').textContent = titulo;
+  document.getElementById('rp_sub').textContent = sub;
+  document.getElementById('rp_tel_row').style.display = showTel ? 'block' : 'none';
+  document.getElementById('rp_nac_row').style.display = showNac ? 'block' : 'none';
+  document.getElementById('rp_email_row').style.display = showEmail ? 'block' : 'none';
+  document.getElementById('rp_chk1').textContent = chk1.slice(0, 60) + (chk1.length > 60 ? '...' : '');
+  document.getElementById('rp_chk2').textContent = chk2.slice(0, 60) + (chk2.length > 60 ? '...' : '');
+  const btn = document.getElementById('rp_btn');
+  btn.style.background = btnColor;
+  btn.textContent = btnTexto;
+}
+
+async function saveRegistroConfig(e) {
+  e.preventDefault();
+  const body = {
+    logo_url: document.getElementById('rc_logo').value.trim(),
+    titulo: document.getElementById('rc_titulo').value.trim(),
+    subtitulo: document.getElementById('rc_subtitulo').value.trim(),
+    btn_color: document.getElementById('rc_btn_color').value.trim(),
+    btn_texto: document.getElementById('rc_btn_texto').value.trim(),
+    campo_telefono: document.getElementById('rc_telefono').checked ? 1 : 0,
+    campo_nacimiento: document.getElementById('rc_nacimiento').checked ? 1 : 0,
+    campo_correo: document.getElementById('rc_correo').checked ? 1 : 0,
+    chk1_texto: document.getElementById('rc_chk1').value.trim(),
+    chk2_texto: document.getElementById('rc_chk2').value.trim(),
+    tyc_texto: document.getElementById('rc_tyc').value.trim()
+  };
+  const r = await fetch('/api/admin/registro-config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const msg = document.getElementById('rc_msg');
+  msg.textContent = r.ok ? '✓ Cambios guardados. El formulario de registro se actualiza inmediatamente.' : 'Error al guardar.';
   msg.style.color = r.ok ? '#16321f' : '#a01818';
 }
 
@@ -1660,6 +1916,17 @@ async function buscar() {
 }
 
 function renderRegisterPage(req, res) {
+  const cfg = db.prepare('SELECT * FROM registro_config WHERE id = 1').get() || {};
+  const logoUrl = cfg.logo_url || 'https://i.imgur.com/nJrUCee.png';
+  const titulo = cfg.titulo || 'Club de Fidelización';
+  const subtitulo = cfg.subtitulo || 'Regístrate y acumula marcas con tus compras';
+  const btnColor = cfg.btn_color || '#16321f';
+  const btnTexto = cfg.btn_texto || 'Crear mi tarjeta';
+  const showTel = cfg.campo_telefono !== 0;
+  const showNac = cfg.campo_nacimiento !== 0;
+  const showEmail = cfg.campo_correo !== 0;
+  const chk1 = cfg.chk1_texto || 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.';
+  const chk2 = cfg.chk2_texto || 'Autorizo a GETit a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.';
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1682,15 +1949,15 @@ function renderRegisterPage(req, res) {
   .check-group{margin-top:18px;display:flex;flex-direction:column;gap:14px;}
   .check-item{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:#444;line-height:1.5;cursor:pointer;}
   .check-item input[type=checkbox]{width:18px;height:18px;min-width:18px;margin-top:2px;accent-color:#16321f;cursor:pointer;}
-  button{margin-top:22px;width:100%;padding:13px;background:#16321f;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;}
+  button{margin-top:22px;width:100%;padding:13px;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600;background:${btnColor};}
   button:disabled{background:#aaa;cursor:not-allowed;}
   .result{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;}
 </style></head>
 <body>
 <div class="panel">
-  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
-  <h2>Club de Fidelización</h2>
-  <p class="sub">Regístrate y acumula marcas con tus compras</p>
+  <div class="logo"><img src="${logoUrl}" alt="GETit"></div>
+  <h2>${titulo}</h2>
+  <p class="sub">${subtitulo}</p>
   <form id="form" autocomplete="off">
     <label>RUT *</label>
     <input type="text" name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required>
@@ -1702,18 +1969,18 @@ function renderRegisterPage(req, res) {
     <label>Apellido *</label>
     <input type="text" name="last_name" placeholder="Pérez" required style="text-transform:uppercase;">
 
-    <label>Correo electrónico *</label>
-    <input type="email" name="email" placeholder="juan@correo.com" required>
+    ${showEmail ? `<label>Correo electrónico *</label>
+    <input type="email" name="email" placeholder="juan@correo.com" ${showEmail ? 'required' : ''}>` : ''}
 
-    <label>Teléfono *</label>
+    ${showTel ? `<label>Teléfono *</label>
     <div class="phone-row">
       <span class="phone-prefix">+569</span>
       <input type="tel" name="phone" placeholder="12345678" maxlength="8" inputmode="numeric" pattern="[0-9]{8}" required>
     </div>
-    <div class="hint">8 dígitos. Ej: 12345678</div>
+    <div class="hint">8 dígitos. Ej: 12345678</div>` : ''}
 
-    <label>Fecha de nacimiento *</label>
-    <input type="date" name="birth_date" required>
+    ${showNac ? `<label>Fecha de nacimiento *</label>
+    <input type="date" name="birth_date" required>` : ''}
 
     <div class="check-group">
       <label class="check-item">
@@ -1722,11 +1989,11 @@ function renderRegisterPage(req, res) {
       </label>
       <label class="check-item">
         <input type="checkbox" id="chk2" required>
-        <span>Autorizo a GETit a usar mis datos personales (nombre, correo, teléfono y fecha de nacimiento) para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.</span>
+        <span>${chk2}</span>
       </label>
     </div>
 
-    <button type="submit" id="submitBtn">Crear mi tarjeta</button>
+    <button type="submit" id="submitBtn">${btnTexto}</button>
   </form>
   <div id="result"></div>
 </div>
@@ -1752,29 +2019,30 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
   const rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
 
-  const phone = f.phone.value.trim();
-  if (phone.length !== 8 || !/^[0-9]{8}$/.test(phone)) {
-    showError('El teléfono debe tener exactamente 8 dígitos.');
-    return;
+  const phoneInput = f.phone;
+  if (phoneInput) {
+    const phone = phoneInput.value.trim();
+    if (phone.length !== 8 || !/^[0-9]{8}$/.test(phone)) {
+      showError('El teléfono debe tener exactamente 8 dígitos.');
+      return;
+    }
   }
 
   div.style.cssText = 'margin-top:16px;padding:14px;border-radius:8px;font-size:14px;background:#e6f4ea;color:#16321f;';
   div.textContent = 'Registrando...';
   document.getElementById('submitBtn').disabled = true;
 
-  const r = await fetch('/api/customers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      rut,
-      first_name: f.first_name.value.trim(),
-      last_name: f.last_name.value.trim(),
-      birth_date: f.birth_date.value,
-      email: f.email.value.trim(),
-      whatsapp_number: '+569' + phone,
-      marcas: 0
-    })
-  });
+  const body = {
+    rut,
+    first_name: f.first_name.value.trim(),
+    last_name: f.last_name.value.trim(),
+    birth_date: f.birth_date ? f.birth_date.value : '',
+    email: f.email ? f.email.value.trim() : rut.replace(/[^0-9kK]/g,'').toLowerCase() + '@getit.cl',
+    marcas: 0
+  };
+  if (f.phone) body.whatsapp_number = '+569' + f.phone.value.trim();
+
+  const r = await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await r.json();
 
   if (r.ok) {
@@ -1795,7 +2063,6 @@ function showError(msg) {
 </script>
 </body></html>`);
 }
-
 async function renderCajaPage(req, res) {
   const staff = getAuthenticatedStaff(req);
 
@@ -2210,6 +2477,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && pathName.startsWith('/tarjeta/')) return await renderCardPage(req, res, pathName.split('/')[2]);
     if (req.method === 'GET' && pathName === '/manifest.json') return renderManifest(req, res);
+    if (req.method === 'GET' && pathName === '/login') return renderLoginUnificado(req, res);
     if (req.method === 'GET' && pathName === '/admin') return renderAdminPage(req, res);
     if (req.method === 'GET' && pathName === '/registro') return renderRegisterPage(req, res);
     if (req.method === 'GET' && pathName === '/mi-tarjeta') return renderMiTarjetaPage(req, res);
@@ -2240,6 +2508,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return getProgram(req, res, pathName.split('/')[4]);
     if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return await updateProgramDesign(req, res, pathName.split('/')[4]);
 
+    if (req.method === 'GET' && pathName === '/api/admin/registro-config') return getRegistroConfig(req, res);
+    if (req.method === 'PUT' && pathName === '/api/admin/registro-config') return await updateRegistroConfig(req, res);
     if (req.method === 'GET' && pathName === '/terminos') return renderTerminos(req, res);
     sendJSON(res, 404, { error: 'Ruta no encontrada' });
   } catch (err) {
