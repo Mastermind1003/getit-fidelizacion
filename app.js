@@ -939,8 +939,8 @@ async function updateProgramDesign(req, res, id) {
   if (required_stamps != null && (!Number.isInteger(required_stamps) || required_stamps < 1 || required_stamps > 30)) {
     return sendJSON(res, 400, { error: 'required_stamps debe ser un entero entre 1 y 30.' });
   }
-  if (logo_width != null && (!Number.isInteger(logo_width) || logo_width < 50 || logo_width > 140)) {
-    return sendJSON(res, 400, { error: 'logo_width debe ser un entero entre 50 y 140.' });
+  if (logo_width != null && (!Number.isInteger(logo_width) || logo_width < 50 || logo_width > 76)) {
+    return sendJSON(res, 400, { error: 'logo_width debe ser un entero entre 50 y 76.' });
   }
   if (stamp_size != null && (!Number.isInteger(stamp_size) || stamp_size < 10 || stamp_size > 25)) {
     return sendJSON(res, 400, { error: 'stamp_size debe ser un entero entre 10 y 25.' });
@@ -1591,7 +1591,7 @@ function renderAdminPage(req, res) {
             <input type="url" id="lc_logo" placeholder="https://i.imgur.com/..." oninput="updateLoginPreview()">
             <label>Tamaño del logo (px)</label>
             <div class="rangerow">
-              <input type="range" id="lc_logo_width" min="40" max="300" value="120" oninput="syncRange(this,'lc_logo_width_val');updateLoginPreview()">
+              <input type="range" id="lc_logo_width" min="40" max="51" value="120" oninput="syncRange(this,'lc_logo_width_val');updateLoginPreview()">
               <span class="rangeval" id="lc_logo_width_val">120px</span>
             </div>
             <label>Color de fondo</label>
@@ -1634,7 +1634,7 @@ function renderAdminPage(req, res) {
             <input type="url" id="rc_logo" placeholder="https://i.imgur.com/..." oninput="updateRegPreview()">
             <label>Tamaño del logo (px)</label>
             <div class="rangerow">
-              <input type="range" id="rc_logo_width" min="40" max="300" value="140" oninput="syncRange(this,'rc_logo_width_val');updateRegPreview()">
+              <input type="range" id="rc_logo_width" min="40" max="56" value="140" oninput="syncRange(this,'rc_logo_width_val');updateRegPreview()">
               <span class="rangeval" id="rc_logo_width_val">140px</span>
             </div>
             <label>Título</label>
@@ -1775,10 +1775,10 @@ function renderAdminPage(req, res) {
           <input type="number" name="required_stamps" value="${p.required_stamps || 10}" min="1" max="30" oninput="updatePreview(${p.id})">
           <label>URL del logo</label>
           <input type="url" name="logo_url" value="${p.logo_url || ''}" oninput="updatePreview(${p.id})">
-          <label>Tamaño del logo (máximo 140px)</label>
+          <label>Tamaño del logo (máximo 76px)</label>
           <div class="rangerow">
-            <input type="range" name="logo_width" min="50" max="140" value="${p.logo_width || 140}" oninput="syncRange(this,'logo_width_val_${p.id}');updatePreview(${p.id})">
-            <span class="rangeval" id="logo_width_val_${p.id}">${p.logo_width || 140}px</span>
+            <input type="range" name="logo_width" min="50" max="76" value="${p.logo_width || 76}" oninput="syncRange(this,'logo_width_val_${p.id}');updatePreview(${p.id})">
+            <span class="rangeval" id="logo_width_val_${p.id}">${p.logo_width || 76}px</span>
           </div>
           <label>Color principal</label>
           <div class="colorrow">
@@ -1811,7 +1811,7 @@ function renderAdminPage(req, res) {
       </div>
       <div class="previewcol">
         <div class="preview-card" id="preview-card-${p.id}" style="background:${p.primary_color||'#000'};">
-          <img id="preview-logo-${p.id}" src="${p.logo_url||''}" style="width:min(${p.logo_width||140}px,80%);max-height:60px;object-fit:contain;display:${p.logo_url?'block':'none'};">
+          <img id="preview-logo-${p.id}" src="${p.logo_url||''}" style="width:min(${p.logo_width||76}px,80%);max-height:60px;object-fit:contain;display:${p.logo_url?'block':'none'};">
           <div class="preview-brand" id="preview-brand-${p.id}">${p.name||''}</div>
           <div class="preview-qr">QR</div>
           <div class="preview-grid" id="preview-grid-${p.id}"></div>
@@ -3242,7 +3242,7 @@ function renderTerminos(req, res) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;color:${textColor};}
   .wrap{max-width:680px;margin:0 auto;background:${cardColor};border-radius:12px;padding:32px 28px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
   .logo{text-align:center;margin-bottom:20px;}
-  .logo img{max-width:120px;object-fit:contain;}
+  .logo img{max-width:${logoWidth}px;object-fit:contain;}
   h1{font-size:20px;color:${titleColor};margin-bottom:4px;}
   .meta{font-size:12px;color:#888;margin-bottom:28px;}
   h2{font-size:15px;color:${h2Color};margin-top:28px;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;}
