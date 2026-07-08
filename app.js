@@ -2047,7 +2047,7 @@ async function loadRegistroConfig() {
   document.getElementById('rc_nacimiento').checked = cfg.campo_nacimiento !== 0;
   document.getElementById('rc_chk1').value = cfg.chk1_texto || '';
   document.getElementById('rc_chk2').value = cfg.chk2_texto || '';
-  document.getElementById('rc_tyc').value = cfg.tyc_texto || '';
+  
   updateRegPreview();
 }
 
