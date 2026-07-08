@@ -248,6 +248,7 @@ try {
   if (!exists) db.prepare('INSERT INTO registro_config (id) VALUES (1)').run();
   // Migración: agregar bg_color si no existe
   try { db.exec("ALTER TABLE registro_config ADD COLUMN bg_color TEXT DEFAULT '#f4f4f5'"); } catch(e) {}
+  try { db.exec("ALTER TABLE registro_config ADD COLUMN logo_width INTEGER DEFAULT 140"); } catch(e) {}
   try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_rut INTEGER DEFAULT 1"); } catch(e) {}
   try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_nombre INTEGER DEFAULT 1"); } catch(e) {}
   try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_apellido INTEGER DEFAULT 1"); } catch(e) {}
@@ -255,14 +256,17 @@ try {
   db.exec(`CREATE TABLE IF NOT EXISTS login_config (
     id INTEGER PRIMARY KEY DEFAULT 1,
     logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+    logo_width INTEGER DEFAULT 120,
     bg_color TEXT DEFAULT '#f4f4f5',
     btn_color TEXT DEFAULT '#16321f',
     btn_texto TEXT DEFAULT 'Ingresar'
   )`);
+  try { db.exec('ALTER TABLE login_config ADD COLUMN logo_width INTEGER DEFAULT 120'); } catch(e) {}
   // TyC config
   db.exec(`CREATE TABLE IF NOT EXISTS tyc_config (
     id INTEGER PRIMARY KEY DEFAULT 1,
     logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+    logo_width INTEGER DEFAULT 120,
     bg_color TEXT DEFAULT '#f4f4f5',
     card_color TEXT DEFAULT '#ffffff',
     title_color TEXT DEFAULT '#16321f',
@@ -936,6 +940,7 @@ function renderLoginUnificado(req, res) {
   }
   const cfg = db.prepare('SELECT * FROM login_config WHERE id = 1').get() || {};
   const logoUrl = cfg.logo_url || 'https://i.imgur.com/nJrUCee.png';
+  const logoWidth = cfg.logo_width || 120;
   const bgColor = cfg.bg_color || '#f4f4f5';
   const btnColor = cfg.btn_color || '#16321f';
   const btnTexto = cfg.btn_texto || 'Ingresar';
@@ -948,7 +953,7 @@ function renderLoginUnificado(req, res) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
   .panel{max-width:380px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:20px;}
-  .logo img{max-width:120px;max-height:60px;object-fit:contain;}
+  .logo img{max-width:${logoWidth}px;max-height:80px;object-fit:contain;}
   h2{margin-top:0;text-align:center;color:#333;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
   input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
@@ -990,7 +995,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const data = await r.json();
   const err = document.getElementById('loginErr');
   if (r.ok) {
-    window.location.href = data.staff.role === 'admin' ? '/admin' : '/caja';
+    window.location.href = (data.staff.role === 'admin' || data.staff.role === 'superadmin') ? '/admin' : '/caja';
   } else {
     err.style.display = 'block';
     err.textContent = data.error || 'Usuario o contraseña incorrectos.';
@@ -1218,6 +1223,9 @@ async function resetUserPassword(req, res, id) {
   }
   const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
   if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
+  if (target.role === 'superadmin' && staff.role !== 'superadmin') {
+    return sendJSON(res, 403, { error: 'No tienes permisos para cambiar la contraseña del administrador principal.' });
+  }
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
   db.prepare('UPDATE staff_users SET password_hash = ? WHERE id = ?').run(`${salt}:${hash}`, id);
@@ -1233,6 +1241,10 @@ async function updateUser(req, res, id) {
   const body = await readBody(req);
   const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
   if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
+  // Solo superadmin puede modificar a otro superadmin
+  if (target.role === 'superadmin' && staff.role !== 'superadmin') {
+    return sendJSON(res, 403, { error: 'No tienes permisos para modificar al administrador principal.' });
+  }
   // No permitir que el admin se desactive a sí mismo
   if (Number(id) === staff.id && body.active === 0) {
     return sendJSON(res, 400, { error: 'No puedes desactivarte a ti mismo.' });
@@ -1262,6 +1274,9 @@ function deleteUser(req, res, id) {
     return sendJSON(res, 400, { error: 'No puedes eliminar tu propio usuario.' });
   }
   const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
+  if (target && target.role === 'superadmin' && staff.role !== 'superadmin') {
+    return sendJSON(res, 403, { error: 'No tienes permisos para eliminar al administrador principal.' });
+  }
   if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
   db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(id);
   db.prepare('DELETE FROM staff_users WHERE id = ?').run(id);
@@ -1279,7 +1294,7 @@ async function updateTycConfig(req, res) {
   const staff = requireSuperAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
-  const fields = ['logo_url','bg_color','card_color','title_color','h2_color','text_color',
+  const fields = ['logo_url','logo_width','bg_color','card_color','title_color','h2_color','text_color',
     'razon_social','rut','nombre_fantasia','domicilio','titulo','fecha_actualizacion',
     's1_titulo','s1_texto','s2_titulo','s2_texto','s3_titulo','s3_texto','s4_titulo','s4_texto',
     's5_titulo','s5_texto','s6_titulo','s6_texto','s7_titulo','s7_texto','s8_titulo','s8_texto'];
@@ -1298,7 +1313,7 @@ async function updateLoginConfig(req, res) {
   const staff = requireSuperAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
-  const fields = ['logo_url','bg_color','btn_color','btn_texto'];
+  const fields = ['logo_url','logo_width','bg_color','btn_color','btn_texto'];
   const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
   const vals = fields.filter(f => body[f] !== undefined).map(f => body[f]);
   if (sets) db.prepare(`UPDATE login_config SET ${sets} WHERE id = 1`).run(...vals);
@@ -1314,7 +1329,7 @@ async function updateRegistroConfig(req, res) {
   const staff = requireSuperAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
-  const fields = ['logo_url','titulo','subtitulo','bg_color','btn_color','btn_texto',
+  const fields = ['logo_url','logo_width','titulo','subtitulo','bg_color','btn_color','btn_texto',
     'campo_rut','campo_nombre','campo_apellido','campo_correo','campo_telefono','campo_nacimiento',
     'chk1_texto','chk2_texto','tyc_texto'];
   const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
@@ -1409,7 +1424,7 @@ function getDashboardStats() {
 
 function renderAdminPage(req, res) {
   const staff = getAuthenticatedStaff(req);
-  if (!staff || staff.role !== 'admin') {
+  if (!staff || !['admin','superadmin'].includes(staff.role)) {
     res.writeHead(302, { Location: '/login' }); return res.end();
   }
   const programs = db.prepare('SELECT * FROM loyalty_programs').all();
@@ -1535,6 +1550,11 @@ function renderAdminPage(req, res) {
           <form onsubmit="saveLoginConfig(event)">
             <label>Logo (URL)</label>
             <input type="url" id="lc_logo" placeholder="https://i.imgur.com/..." oninput="updateLoginPreview()">
+            <label>Tamaño del logo (px)</label>
+            <div class="rangerow">
+              <input type="range" id="lc_logo_width" min="40" max="300" value="120" oninput="syncRange(this,'lc_logo_width_val');updateLoginPreview()">
+              <span class="rangeval" id="lc_logo_width_val">120px</span>
+            </div>
             <label>Color de fondo</label>
             <div class="colorrow">
               <input type="color" id="lc_bg_picker" oninput="syncLoginColor('bg',this.value)">
@@ -1573,6 +1593,11 @@ function renderAdminPage(req, res) {
           <form onsubmit="saveRegistroConfig(event)">
             <label>Logo (URL)</label>
             <input type="url" id="rc_logo" placeholder="https://i.imgur.com/..." oninput="updateRegPreview()">
+            <label>Tamaño del logo (px)</label>
+            <div class="rangerow">
+              <input type="range" id="rc_logo_width" min="40" max="300" value="140" oninput="syncRange(this,'rc_logo_width_val');updateRegPreview()">
+              <span class="rangeval" id="rc_logo_width_val">140px</span>
+            </div>
             <label>Título</label>
             <input type="text" id="rc_titulo" oninput="updateRegPreview()">
             <label>Subtítulo</label>
@@ -1637,6 +1662,11 @@ function renderAdminPage(req, res) {
         <h3 style="font-size:14px;color:#333;margin:0 0 12px;border-bottom:1px solid #eee;padding-bottom:6px;">🎨 Apariencia</h3>
         <label>Logo (URL)</label>
         <input type="url" id="tyc_logo" placeholder="https://i.imgur.com/..." oninput="updateTycPreview()">
+        <label>Tamaño del logo (px)</label>
+        <div class="rangerow">
+          <input type="range" id="tyc_logo_width" min="40" max="300" value="120" oninput="syncRange(this,'tyc_logo_width_val');updateTycPreview()">
+          <span class="rangeval" id="tyc_logo_width_val">120px</span>
+        </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
           <div style="flex:1;min-width:140px;">
             <label>Color de fondo</label>
@@ -1775,6 +1805,7 @@ function renderAdminPage(req, res) {
   </div>
 </div>
 <script>
+const CURRENT_ROLE = '${staff.role}';
 function switchAdminTab(tab) {
   ['clientes','diseno','registro','usuarios'].forEach(t => {
     const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -1961,6 +1992,7 @@ async function loadRegistroConfig() {
   const r = await fetch('/api/admin/registro-config');
   const cfg = await r.json();
   document.getElementById('rc_logo').value = cfg.logo_url || '';
+  if (cfg.logo_width) { var lw=document.getElementById('rc_logo_width'); if(lw){ lw.value=cfg.logo_width; document.getElementById('rc_logo_width_val').textContent=cfg.logo_width+'px'; } }
   document.getElementById('rc_titulo').value = cfg.titulo || '';
   document.getElementById('rc_subtitulo').value = cfg.subtitulo || '';
   document.getElementById('rc_bg_color').value = cfg.bg_color || '#f4f4f5';
@@ -1984,7 +2016,7 @@ async function loadLoginConfig() {
   const r = await fetch('/api/admin/login-config');
   const cfg = await r.json();
   document.getElementById('lc_logo').value = cfg.logo_url || '';
-  document.getElementById('lc_bg_color').value = cfg.bg_color || '#f4f4f5';
+  if (cfg.logo_width) { var lw=document.getElementById('lc_logo_width'); if(lw){ lw.value=cfg.logo_width; document.getElementById('lc_logo_width_val').textContent=cfg.logo_width+'px'; } } = cfg.bg_color || '#f4f4f5';
   document.getElementById('lc_bg_picker').value = cfg.bg_color || '#f4f4f5';
   document.getElementById('lc_btn_color').value = cfg.btn_color || '#16321f';
   document.getElementById('lc_btn_picker').value = cfg.btn_color || '#16321f';
@@ -2024,12 +2056,13 @@ function syncLoginColorText(field, val) {
 }
 function updateLoginPreview() {
   const logo = document.getElementById('lc_logo').value;
+  const logoW = document.getElementById('lc_logo_width').value || 120;
   const bg = document.getElementById('lc_bg_color').value || '#f4f4f5';
   const btn = document.getElementById('lc_btn_color').value || '#16321f';
   const texto = document.getElementById('lc_btn_texto').value || 'Ingresar';
   document.getElementById('lp_wrap').style.background = bg;
   const img = document.getElementById('lp_logo');
-  img.src = logo; img.style.display = logo ? 'inline' : 'none';
+  img.src = logo; img.style.display = logo ? 'inline' : 'none'; img.style.maxWidth = logoW + 'px';
   const b = document.getElementById('lp_btn');
   b.style.background = btn; b.textContent = texto;
 }
@@ -2037,6 +2070,7 @@ async function saveLoginConfig(e) {
   e.preventDefault();
   const body = {
     logo_url: document.getElementById('lc_logo').value.trim(),
+    logo_width: parseInt(document.getElementById('lc_logo_width').value, 10) || 120,
     bg_color: document.getElementById('lc_bg_color').value.trim(),
     btn_color: document.getElementById('lc_btn_color').value.trim(),
     btn_texto: document.getElementById('lc_btn_texto').value.trim()
@@ -2074,8 +2108,9 @@ function updateRegPreview() {
   const chk1 = document.getElementById('rc_chk1').value;
   const chk2 = document.getElementById('rc_chk2').value;
   document.getElementById('reg_preview').style.background = bg;
+  const logoWR = document.getElementById('rc_logo_width') ? document.getElementById('rc_logo_width').value : 140;
   const img = document.getElementById('rp_logo');
-  img.src = logo; img.style.display = logo ? 'inline' : 'none';
+  img.src = logo; img.style.display = logo ? 'inline' : 'none'; img.style.maxWidth = logoWR + 'px';
   document.getElementById('rp_titulo').textContent = titulo;
   document.getElementById('rp_sub').textContent = sub;
   document.getElementById('rp_rut_row').style.display     = showRut    ? 'block' : 'none';
@@ -2093,6 +2128,7 @@ async function saveRegistroConfig(e) {
   e.preventDefault();
   const body = {
     logo_url:    document.getElementById('rc_logo').value.trim(),
+    logo_width:  parseInt(document.getElementById('rc_logo_width').value, 10) || 140,
     titulo:      document.getElementById('rc_titulo').value.trim(),
     subtitulo:   document.getElementById('rc_subtitulo').value.trim(),
     bg_color:    document.getElementById('rc_bg_color').value.trim(),
@@ -2123,6 +2159,7 @@ async function loadTycConfig() {
     if(t) t.value=val; if(p && /^#[0-9A-Fa-f]{6}$/.test(val)) p.value=val;
   };
   set('tyc_logo', cfg.logo_url);
+  if (cfg.logo_width) { var lw=document.getElementById('tyc_logo_width'); if(lw){ lw.value=cfg.logo_width; document.getElementById('tyc_logo_width_val').textContent=cfg.logo_width+'px'; } }
   setColor('bg', cfg.bg_color); setColor('card', cfg.card_color);
   setColor('title', cfg.title_color); setColor('h2', cfg.h2_color); setColor('text', cfg.text_color);
   set('tyc_razon_social', cfg.razon_social); set('tyc_rut', cfg.rut);
@@ -2151,6 +2188,7 @@ async function saveTycConfig(e) {
   e.preventDefault();
   var body = {
     logo_url: document.getElementById('tyc_logo').value.trim(),
+    logo_width: parseInt(document.getElementById('tyc_logo_width').value, 10) || 120,
     bg_color: document.getElementById('tyc_bg_color').value.trim(),
     card_color: document.getElementById('tyc_card_color').value.trim(),
     title_color: document.getElementById('tyc_title_color').value.trim(),
@@ -2185,35 +2223,60 @@ async function loadUsers() {
   const rows = await r.json();
   const tbody = document.getElementById('usersBody');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;color:#999;">Sin usuarios.</td></tr>'; return; }
+  const isSuperAdmin = CURRENT_ROLE === 'superadmin';
 
-  // Guardar en mapa global para evitar JSON en atributos onclick
   window._usersMap = {};
   rows.forEach(u => { window._usersMap[u.id] = u; });
 
   tbody.innerHTML = rows.map(u => {
-    const roleBadge = u.role === 'superadmin'
-      ? '<span style="background:#8B0000;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Super Admin</span>'
-      : u.role === 'admin'
-      ? '<span style="background:#16321f;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Admin</span>'
-      : '<span style="background:#888;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Cajero</span>';
+    const isSuperRow = u.role === 'superadmin';
+
+    // Badge de rol: admin no ve el rol del superadmin
+    let roleBadge;
+    if (isSuperRow && !isSuperAdmin) {
+      roleBadge = '<span style="background:#555;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Superior</span>';
+    } else if (isSuperRow) {
+      roleBadge = '<span style="background:#8B0000;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Super Admin</span>';
+    } else if (u.role === 'admin') {
+      roleBadge = '<span style="background:#16321f;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Admin</span>';
+    } else {
+      roleBadge = '<span style="background:#888;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Cajero</span>';
+    }
+
     const activeBadge = u.active
       ? '<span style="color:#16321f;font-weight:600;">✓ Activo</span>'
       : '<span style="color:#a01818;font-weight:600;">✗ Inactivo</span>';
-    const toggleBtn = u.active
-      ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
-      : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>';
+
+    // Admin no puede tocar al superadmin
+    let acciones;
+    if (isSuperRow && !isSuperAdmin) {
+      acciones = '<span style="font-size:12px;color:#999;">— sin acceso —</span>';
+    } else if (isSuperAdmin) {
+      const toggleBtn = u.active
+        ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
+        : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>';
+      acciones = '<button class="actbtn" onclick="showEditUserModal(' + u.id + ')">Editar</button>' +
+        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ')">Contraseña</button>' +
+        toggleBtn +
+        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ')">Eliminar</button>';
+    } else {
+      // Admin puede editar/eliminar cajeros y otros admins (no superadmin)
+      const toggleBtn = u.active
+        ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
+        : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>';
+      acciones = '<button class="actbtn" onclick="showEditUserModal(' + u.id + ')">Editar</button>' +
+        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ')">Contraseña</button>' +
+        toggleBtn +
+        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ')">Eliminar</button>';
+    }
+
     return '<tr>' +
       '<td>' + u.id + '</td>' +
       '<td>' + u.name + '</td>' +
       '<td><code>' + u.username + '</code></td>' +
       '<td>' + roleBadge + '</td>' +
       '<td>' + activeBadge + '</td>' +
-      '<td>' +
-        '<button class="actbtn" onclick="showEditUserModal(' + u.id + ')">Editar</button>' +
-        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ')">Contraseña</button>' +
-        toggleBtn +
-        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ')">Eliminar</button>' +
-      '</td>' +
+      '<td>' + acciones + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -2643,6 +2706,7 @@ async function buscar() {
 function renderRegisterPage(req, res) {
   const cfg = db.prepare('SELECT * FROM registro_config WHERE id = 1').get() || {};
   const logoUrl = cfg.logo_url || 'https://i.imgur.com/nJrUCee.png';
+  const logoWidth = cfg.logo_width || 140;
   const titulo = cfg.titulo || 'Club de Fidelización';
   const subtitulo = cfg.subtitulo || 'Regístrate y acumula marcas con tus compras';
   const btnColor = cfg.btn_color || '#16321f';
@@ -2665,7 +2729,7 @@ function renderRegisterPage(req, res) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;}
   .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:16px;}
-  .logo img{max-width:140px;max-height:80px;object-fit:contain;}
+  .logo img{max-width:${logoWidth}px;max-height:100px;object-fit:contain;}
   h2{margin-top:0;font-size:20px;text-align:center;color:#16321f;}
   p.sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
@@ -3100,6 +3164,7 @@ function renderTerminos(req, res) {
   try { cfg = db.prepare('SELECT * FROM tyc_config WHERE id = 1').get() || {}; } catch(e) {}
 
   const logoUrl   = cfg.logo_url   || 'https://i.imgur.com/nJrUCee.png';
+  const logoWidth = cfg.logo_width || 120;
   const bgColor   = cfg.bg_color   || '#f4f4f5';
   const cardColor = cfg.card_color || '#ffffff';
   const titleColor= cfg.title_color|| '#16321f';
