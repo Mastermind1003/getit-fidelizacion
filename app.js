@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS staff_users (
   username TEXT UNIQUE,
   email TEXT UNIQUE,
   password_hash TEXT NOT NULL,
-  role TEXT CHECK(role IN ('cashier','manager','admin')) NOT NULL DEFAULT 'cashier',
+  role TEXT CHECK(role IN ('cashier','manager','admin','superadmin')) NOT NULL DEFAULT 'cashier',
   active INTEGER DEFAULT 1
 );
 
@@ -259,8 +259,32 @@ try {
     btn_color TEXT DEFAULT '#16321f',
     btn_texto TEXT DEFAULT 'Ingresar'
   )`);
-  const existsLogin = db.prepare('SELECT id FROM login_config WHERE id = 1').get();
-  if (!existsLogin) db.prepare('INSERT INTO login_config (id) VALUES (1)').run();
+  // TyC config
+  db.exec(`CREATE TABLE IF NOT EXISTS tyc_config (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+    bg_color TEXT DEFAULT '#f4f4f5',
+    card_color TEXT DEFAULT '#ffffff',
+    title_color TEXT DEFAULT '#16321f',
+    h2_color TEXT DEFAULT '#16321f',
+    text_color TEXT DEFAULT '#333333',
+    razon_social TEXT DEFAULT 'Convenience de Chile SPA',
+    rut TEXT DEFAULT '76.865.177-9',
+    nombre_fantasia TEXT DEFAULT 'Get it',
+    domicilio TEXT DEFAULT 'Santiago, Región Metropolitana, Chile',
+    titulo TEXT DEFAULT 'Términos y Condiciones del Club de Fidelización',
+    fecha_actualizacion TEXT DEFAULT '08 de julio de 2026',
+    s1_titulo TEXT, s1_texto TEXT,
+    s2_titulo TEXT, s2_texto TEXT,
+    s3_titulo TEXT, s3_texto TEXT,
+    s4_titulo TEXT, s4_texto TEXT,
+    s5_titulo TEXT, s5_texto TEXT,
+    s6_titulo TEXT, s6_texto TEXT,
+    s7_titulo TEXT, s7_texto TEXT,
+    s8_titulo TEXT, s8_texto TEXT
+  )`);
+  const existsTyc = db.prepare('SELECT id FROM tyc_config WHERE id = 1').get();
+  if (!existsTyc) db.prepare('INSERT INTO tyc_config (id) VALUES (1)').run();
 } catch (e) { /* ya existe */ }
 
 function genShortCode() {
@@ -305,6 +329,10 @@ function ensureStaffUser(username, password, name, role) {
     console.error(`No se pudo crear el usuario "${username}":`, err.message);
   }
 }
+// Migración: ampliar CHECK de roles para incluir superadmin
+try { db.exec("UPDATE staff_users SET role = role WHERE role IN ('cashier','manager','admin','superadmin')"); } catch(e) {}
+
+ensureStaffUser('MasterMind', '12345678', 'MasterMind', 'superadmin');
 ensureStaffUser('adm2026', '12345678', 'Administrador', 'admin');
 ensureStaffUser('tienda_1', '1234', 'Cajero Tienda 1', 'cashier');
 
@@ -456,6 +484,13 @@ async function createCustomer(req, res) {
   if (!rut || !first_name || !birth_date) {
     return sendJSON(res, 400, { error: 'Faltan campos obligatorios: rut, first_name, birth_date' });
   }
+  // Validar año de nacimiento
+  if (birth_date) {
+    const yr = parseInt(birth_date.split('-')[0], 10);
+    if (isNaN(yr) || yr < 1900 || yr > 2100) {
+      return sendJSON(res, 400, { error: 'Fecha de nacimiento inválida. El año debe estar entre 1900 y 2100.' });
+    }
+  }
 
   const cleanRut = rut.trim().replace(/\./g, '').toUpperCase();
   if (!cleanRut.startsWith('TEMP-') && !isValidRut(cleanRut)) {
@@ -538,8 +573,17 @@ function lookupBoleta(req, res, documento) {
 
 function requireAdmin(req, res) {
   const staff = getAuthenticatedStaff(req);
-  if (!staff || staff.role !== 'admin') {
+  if (!staff || !['admin','superadmin'].includes(staff.role)) {
     sendJSON(res, 401, { error: 'Debes iniciar sesión como administrador.' });
+    return null;
+  }
+  return staff;
+}
+
+function requireSuperAdmin(req, res) {
+  const staff = getAuthenticatedStaff(req);
+  if (!staff || staff.role !== 'superadmin') {
+    sendJSON(res, 403, { error: 'Acceso restringido al administrador principal.' });
     return null;
   }
   return staff;
@@ -636,12 +680,19 @@ async function updateCustomerAdmin(req, res, id) {
 
   const updated = {
     rut: cleanRut,
-    first_name: first_name ?? customer.first_name,
-    last_name: last_name ?? customer.last_name,
+    first_name: (first_name ?? customer.first_name).toUpperCase(),
+    last_name:  (last_name  ?? customer.last_name).toUpperCase(),
     birth_date: birth_date ?? customer.birth_date,
     email: email ?? customer.email,
     whatsapp_number: whatsapp_number ?? customer.whatsapp_number
   };
+  // Validar año
+  if (updated.birth_date) {
+    const yr = parseInt(updated.birth_date.split('-')[0], 10);
+    if (isNaN(yr) || yr < 1900 || yr > 2100) {
+      return sendJSON(res, 400, { error: 'Fecha inválida. El año debe estar entre 1900 y 2100.' });
+    }
+  }
 
   try {
     db.prepare('UPDATE customers SET rut=?, first_name=?, last_name=?, birth_date=?, email=?, whatsapp_number=? WHERE id=?')
@@ -835,6 +886,8 @@ function listPrograms(req, res) {
 }
 
 async function updateProgramDesign(req, res, id) {
+  const staff = requireSuperAdmin(req, res);
+  if (!staff) return;
   const program = db.prepare('SELECT * FROM loyalty_programs WHERE id = ?').get(id);
   if (!program) return sendJSON(res, 404, { error: 'Programa no encontrado' });
 
@@ -1133,8 +1186,9 @@ async function createUser(req, res) {
   if (!name || !username || !password || !role) {
     return sendJSON(res, 400, { error: 'Faltan campos: name, username, password, role' });
   }
-  if (!['cashier','admin'].includes(role)) {
-    return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier o admin.' });
+  const validRoles = ['cashier','admin','superadmin'];
+  if (!validRoles.includes(role)) {
+    return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier, admin o superadmin.' });
   }
   if (password.length < 4) {
     return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
@@ -1189,7 +1243,7 @@ async function updateUser(req, res, id) {
     active: body.active ?? target.active,
     branch_id: body.branch_id ?? target.branch_id
   };
-  if (!['cashier','admin'].includes(updated.role)) {
+  if (!['cashier','admin','superadmin'].includes(updated.role)) {
     return sendJSON(res, 400, { error: 'Rol inválido.' });
   }
   db.prepare('UPDATE staff_users SET name=?, role=?, active=?, branch_id=? WHERE id=?')
@@ -1215,13 +1269,33 @@ function deleteUser(req, res, id) {
   sendJSON(res, 200, { deleted: true });
 }
 
+function getTycConfig(req, res) {
+  let cfg = {};
+  try { cfg = db.prepare('SELECT * FROM tyc_config WHERE id = 1').get() || {}; } catch(e) {}
+  sendJSON(res, 200, cfg);
+}
+
+async function updateTycConfig(req, res) {
+  const staff = requireSuperAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const fields = ['logo_url','bg_color','card_color','title_color','h2_color','text_color',
+    'razon_social','rut','nombre_fantasia','domicilio','titulo','fecha_actualizacion',
+    's1_titulo','s1_texto','s2_titulo','s2_texto','s3_titulo','s3_texto','s4_titulo','s4_texto',
+    's5_titulo','s5_texto','s6_titulo','s6_texto','s7_titulo','s7_texto','s8_titulo','s8_texto'];
+  const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
+  const vals = fields.filter(f => body[f] !== undefined).map(f => body[f]);
+  if (sets) db.prepare(`UPDATE tyc_config SET ${sets} WHERE id = 1`).run(...vals);
+  sendJSON(res, 200, { updated: true });
+}
+
 function getLoginConfig(req, res) {
   const cfg = db.prepare('SELECT * FROM login_config WHERE id = 1').get();
   sendJSON(res, 200, cfg || {});
 }
 
 async function updateLoginConfig(req, res) {
-  const staff = requireAdmin(req, res);
+  const staff = requireSuperAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
   const fields = ['logo_url','bg_color','btn_color','btn_texto'];
@@ -1237,7 +1311,7 @@ function getRegistroConfig(req, res) {
 }
 
 async function updateRegistroConfig(req, res) {
-  const staff = requireAdmin(req, res);
+  const staff = requireSuperAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
   const fields = ['logo_url','titulo','subtitulo','bg_color','btn_color','btn_texto',
@@ -1403,8 +1477,8 @@ function renderAdminPage(req, res) {
 <div class="wrap">
   <div class="tabs">
     <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchAdminTab('clientes')">Clientes</button>
-    <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>
-    <button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz editable</button>
+    ${staff.role === 'superadmin' ? `<button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>` : ''}
+    ${staff.role === 'superadmin' ? `<button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz editable</button>` : ''}
     <button type="button" class="tabbtn" id="tabBtnUsuarios" onclick="switchAdminTab('usuarios')">Usuarios</button>
   </div>
 
@@ -1441,8 +1515,16 @@ function renderAdminPage(req, res) {
     <div class="panel" style="margin-bottom:12px;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <button type="button" id="btnEdLogin" onclick="showIface('login')" style="flex:1;background:#16321f;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🔐 Editar Login</button>
+        <button type="button" id="btnEdDiseno" onclick="showIface('diseno')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🎨 Diseño de tarjeta</button>
         <button type="button" id="btnEdRegistro" onclick="showIface('registro')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">📋 Editar Registro</button>
       </div>
+    </div>
+
+    <!-- SUB-PANEL DISEÑO DE TARJETA (copia del panel existente pero dentro de interfaz editable) -->
+    <div id="ifaceDiseno" class="panel" style="display:none;">
+      <h2>Diseño de tarjeta</h2>
+      <p style="font-size:13px;color:#666;margin-bottom:16px;">Edita el diseño en la pestaña <strong>Diseño de tarjeta</strong> — los cambios se reflejan en tiempo real en la tarjeta del cliente.</p>
+      <button type="button" onclick="switchAdminTab('diseno')" style="background:#16321f;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;cursor:pointer;font-weight:600;margin-top:0;width:auto;">Ir al editor de diseño →</button>
     </div>
 
     <!-- SUB-PANEL LOGIN -->
@@ -1520,7 +1602,7 @@ function renderAdminPage(req, res) {
             <textarea id="rc_chk1" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
             <label>Texto checkbox 2</label>
             <textarea id="rc_chk2" rows="4" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
-            <button type="button" onclick="showTycEditor()" style="margin-top:14px;width:100%;background:#444;color:#fff;border:none;border-radius:6px;padding:10px;cursor:pointer;font-size:14px;">📄 Editar Términos y Condiciones</button>
+            <button type="button" onclick="showIface('tyc')" style="margin-top:14px;width:100%;background:#444;color:#fff;border:none;border-radius:6px;padding:10px;cursor:pointer;font-size:14px;">📄 Editar Términos y Condiciones</button>
             <button type="submit" style="margin-top:10px;">Guardar Registro</button>
             <div class="msg" id="rc_msg"></div>
           </form>
@@ -1546,19 +1628,68 @@ function renderAdminPage(req, res) {
       </div>
     </div>
 
-    <!-- MODAL TYC -->
-    <div id="tycModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:none;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;">
-      <div style="background:#fff;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;box-sizing:border-box;">
-        <h3 style="margin-top:0;">Editar Términos y Condiciones</h3>
-        <p style="font-size:12px;color:#888;">Este texto aparece en <strong>/terminos</strong> cuando el cliente hace click en el link del registro.</p>
-        <textarea id="rc_tyc" rows="20" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;font-family:monospace;box-sizing:border-box;"></textarea>
-        <div style="display:flex;gap:8px;margin-top:14px;">
-          <button type="button" onclick="saveTyc()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Guardar TyC</button>
-          <button type="button" onclick="closeTycModal()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;">Cancelar</button>
+    <!-- SUB-PANEL TYC -->
+    <div id="ifaceTyc" class="panel" style="display:none;">
+      <h2>Editar Términos y Condiciones</h2>
+      <p style="font-size:13px;color:#666;margin-bottom:20px;">Estos cambios se reflejan inmediatamente en <a href="/terminos" target="_blank" style="color:#16321f;">/terminos</a></p>
+      <form onsubmit="saveTycConfig(event)">
+
+        <h3 style="font-size:14px;color:#333;margin:0 0 12px;border-bottom:1px solid #eee;padding-bottom:6px;">🎨 Apariencia</h3>
+        <label>Logo (URL)</label>
+        <input type="url" id="tyc_logo" placeholder="https://i.imgur.com/..." oninput="updateTycPreview()">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+          <div style="flex:1;min-width:140px;">
+            <label>Color de fondo</label>
+            <div class="colorrow"><input type="color" id="tyc_bg_picker" oninput="syncTycColor('bg',this.value)"><input type="text" id="tyc_bg_color" oninput="syncTycColorText('bg',this.value)"></div>
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label>Color tarjeta</label>
+            <div class="colorrow"><input type="color" id="tyc_card_picker" oninput="syncTycColor('card',this.value)"><input type="text" id="tyc_card_color" oninput="syncTycColorText('card',this.value)"></div>
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label>Color título</label>
+            <div class="colorrow"><input type="color" id="tyc_title_picker" oninput="syncTycColor('title',this.value)"><input type="text" id="tyc_title_color" oninput="syncTycColorText('title',this.value)"></div>
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label>Color subtítulos (H2)</label>
+            <div class="colorrow"><input type="color" id="tyc_h2_picker" oninput="syncTycColor('h2',this.value)"><input type="text" id="tyc_h2_color" oninput="syncTycColorText('h2',this.value)"></div>
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label>Color texto</label>
+            <div class="colorrow"><input type="color" id="tyc_text_picker" oninput="syncTycColor('text',this.value)"><input type="text" id="tyc_text_color" oninput="syncTycColorText('text',this.value)"></div>
+          </div>
         </div>
-        <div class="msg" id="tyc_msg" style="margin-top:8px;"></div>
-      </div>
+
+        <h3 style="font-size:14px;color:#333;margin:20px 0 12px;border-bottom:1px solid #eee;padding-bottom:6px;">🏢 Datos de la empresa</h3>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;"><label>Razón social</label><input type="text" id="tyc_razon_social"></div>
+          <div style="flex:1;min-width:140px;"><label>RUT</label><input type="text" id="tyc_rut"></div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+          <div style="flex:1;min-width:160px;"><label>Nombre de fantasía</label><input type="text" id="tyc_nombre_fantasia"></div>
+          <div style="flex:1;min-width:200px;"><label>Domicilio</label><input type="text" id="tyc_domicilio"></div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+          <div style="flex:1;min-width:240px;"><label>Título principal</label><input type="text" id="tyc_titulo"></div>
+          <div style="flex:1;min-width:160px;"><label>Fecha de actualización</label><input type="text" id="tyc_fecha"></div>
+        </div>
+
+        <h3 style="font-size:14px;color:#333;margin:20px 0 12px;border-bottom:1px solid #eee;padding-bottom:6px;">📝 Secciones</h3>
+        ${[1,2,3,4,5,6,7,8].map(n => `
+        <div style="margin-bottom:14px;">
+          <label>Título sección ${n}</label>
+          <input type="text" id="tyc_s${n}_titulo">
+          <label style="margin-top:6px;">Texto sección ${n}</label>
+          <textarea id="tyc_s${n}_texto" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;margin-top:4px;"></textarea>
+        </div>`).join('')}
+
+        <button type="submit" style="margin-top:10px;">Guardar Términos y Condiciones</button>
+        <div class="msg" id="tyc_config_msg"></div>
+      </form>
     </div>
+
+    <!-- MODAL TYC (legacy, ya no se usa) -->
+    <div id="tycModal" style="display:none;"></div>
   </div>
 
   <!-- PESTAÑA DISEÑO -->
@@ -1647,12 +1778,10 @@ function renderAdminPage(req, res) {
 function switchAdminTab(tab) {
   ['clientes','diseno','registro','usuarios'].forEach(t => {
     const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+    const panel = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
     if (btn) btn.className = 'tabbtn' + (tab === t ? ' active' : '');
+    if (panel) panel.style.display = tab === t ? 'block' : 'none';
   });
-  document.getElementById('tabClientes').style.display  = tab === 'clientes'  ? 'block' : 'none';
-  document.getElementById('tabDiseno').style.display    = tab === 'diseno'    ? 'block' : 'none';
-  document.getElementById('tabRegistro').style.display  = tab === 'registro'  ? 'block' : 'none';
-  document.getElementById('tabUsuarios').style.display  = tab === 'usuarios'  ? 'block' : 'none';
   if (tab === 'clientes') loadCustomers();
   if (tab === 'registro') showIface('login');
   if (tab === 'usuarios') loadUsers();
@@ -1687,6 +1816,7 @@ async function loadCustomers() {
       '<td>' + (c.current_stamps != null ? c.current_stamps + '/' + (c.required_stamps||10) : '0/10') + '</td>' +
       '<td style="text-align:center;">' + Math.floor(boletas.length / (c.required_stamps||10)) + '</td>' +
       '<td><button class="actbtn" onclick="showDetail(' + c.id + ')">Detalle</button>' +
+      '<button class="actbtn" onclick="showEditCustomerModal(' + c.id + ')">Editar</button>' +
       '<button class="actbtn delbtn" onclick="delCustomer(' + c.id + ')">Eliminar</button></td>' +
     '</tr>';
   }).join('');
@@ -1863,14 +1993,19 @@ async function loadLoginConfig() {
 }
 
 function showIface(which) {
-  document.getElementById('ifaceLogin').style.display = which === 'login' ? 'block' : 'none';
-  document.getElementById('ifaceRegistro').style.display = which === 'registro' ? 'block' : 'none';
-  document.getElementById('btnEdLogin').style.background = which === 'login' ? '#16321f' : '#ddd';
-  document.getElementById('btnEdLogin').style.color = which === 'login' ? '#fff' : '#333';
-  document.getElementById('btnEdRegistro').style.background = which === 'registro' ? '#16321f' : '#ddd';
-  document.getElementById('btnEdRegistro').style.color = which === 'registro' ? '#fff' : '#333';
+  ['login','diseno','registro','tyc'].forEach(function(t) {
+    var el = document.getElementById('iface' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.style.display = 'none';
+    var btn = document.getElementById('btnEd' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) { btn.style.background = '#ddd'; btn.style.color = '#333'; }
+  });
+  var active = document.getElementById('iface' + which.charAt(0).toUpperCase() + which.slice(1));
+  if (active) active.style.display = 'block';
+  var activeBtn = document.getElementById('btnEd' + which.charAt(0).toUpperCase() + which.slice(1));
+  if (activeBtn) { activeBtn.style.background = '#16321f'; activeBtn.style.color = '#fff'; }
   if (which === 'login') loadLoginConfig();
   if (which === 'registro') loadRegistroConfig();
+  if (which === 'tyc') loadTycConfig();
 }
 
 // ── Login preview ──
@@ -1978,21 +2113,65 @@ async function saveRegistroConfig(e) {
   msg.style.color = r.ok ? '#16321f' : '#a01818';
 }
 
-// ── Modal TyC ──
-function showTycEditor() {
-  document.getElementById('tycModal').style.display = 'flex';
+async function loadTycConfig() {
+  const r = await fetch('/api/admin/tyc-config');
+  const cfg = await r.json();
+  const set = (id, val) => { var el=document.getElementById(id); if(el && val) el.value=val; };
+  const setColor = (key, val) => {
+    if (!val) return;
+    var t=document.getElementById('tyc_'+key+'_color'), p=document.getElementById('tyc_'+key+'_picker');
+    if(t) t.value=val; if(p && /^#[0-9A-Fa-f]{6}$/.test(val)) p.value=val;
+  };
+  set('tyc_logo', cfg.logo_url);
+  setColor('bg', cfg.bg_color); setColor('card', cfg.card_color);
+  setColor('title', cfg.title_color); setColor('h2', cfg.h2_color); setColor('text', cfg.text_color);
+  set('tyc_razon_social', cfg.razon_social); set('tyc_rut', cfg.rut);
+  set('tyc_nombre_fantasia', cfg.nombre_fantasia); set('tyc_domicilio', cfg.domicilio);
+  set('tyc_titulo', cfg.titulo); set('tyc_fecha', cfg.fecha_actualizacion);
+  [1,2,3,4,5,6,7,8].forEach(function(n) {
+    set('tyc_s'+n+'_titulo', cfg['s'+n+'_titulo']);
+    set('tyc_s'+n+'_texto', cfg['s'+n+'_texto']);
+  });
 }
-function closeTycModal() {
-  document.getElementById('tycModal').style.display = 'none';
-  document.getElementById('tyc_msg').textContent = '';
+
+function syncTycColor(key, val) {
+  var t = document.getElementById('tyc_'+key+'_color');
+  if(t) t.value = val;
 }
-async function saveTyc() {
-  const tyc = document.getElementById('rc_tyc').value.trim();
-  const r = await fetch('/api/admin/registro-config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tyc_texto: tyc }) });
-  const msg = document.getElementById('tyc_msg');
-  msg.textContent = r.ok ? '✓ Términos guardados.' : 'Error al guardar.';
+function syncTycColorText(key, val) {
+  var v = val.trim().startsWith('#') ? val.trim() : '#'+val.trim();
+  if(/^#[0-9A-Fa-f]{6}$/.test(v)) {
+    var p = document.getElementById('tyc_'+key+'_picker');
+    if(p) p.value = v;
+  }
+}
+function updateTycPreview() {} // placeholder por si se agrega preview en el futuro
+
+async function saveTycConfig(e) {
+  e.preventDefault();
+  var body = {
+    logo_url: document.getElementById('tyc_logo').value.trim(),
+    bg_color: document.getElementById('tyc_bg_color').value.trim(),
+    card_color: document.getElementById('tyc_card_color').value.trim(),
+    title_color: document.getElementById('tyc_title_color').value.trim(),
+    h2_color: document.getElementById('tyc_h2_color').value.trim(),
+    text_color: document.getElementById('tyc_text_color').value.trim(),
+    razon_social: document.getElementById('tyc_razon_social').value.trim(),
+    rut: document.getElementById('tyc_rut').value.trim(),
+    nombre_fantasia: document.getElementById('tyc_nombre_fantasia').value.trim(),
+    domicilio: document.getElementById('tyc_domicilio').value.trim(),
+    titulo: document.getElementById('tyc_titulo').value.trim(),
+    fecha_actualizacion: document.getElementById('tyc_fecha').value.trim()
+  };
+  [1,2,3,4,5,6,7,8].forEach(function(n) {
+    body['s'+n+'_titulo'] = document.getElementById('tyc_s'+n+'_titulo').value.trim();
+    body['s'+n+'_texto']  = document.getElementById('tyc_s'+n+'_texto').value.trim();
+  });
+  var r = await fetch('/api/admin/tyc-config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  var msg = document.getElementById('tyc_config_msg');
+  msg.textContent = r.ok ? '✓ Términos guardados. Ver en /terminos' : 'Error al guardar.';
   msg.style.color = r.ok ? '#16321f' : '#a01818';
-  if (r.ok) setTimeout(closeTycModal, 1200);
+  if (r.ok) { msg.innerHTML += ' — <a href="/terminos" target="_blank" style="color:#16321f;">Ver TyC →</a>'; }
 }
 
 ${programs.map(p => `updatePreview(${p.id});`).join('\n')}
@@ -2012,7 +2191,9 @@ async function loadUsers() {
   rows.forEach(u => { window._usersMap[u.id] = u; });
 
   tbody.innerHTML = rows.map(u => {
-    const roleBadge = u.role === 'admin'
+    const roleBadge = u.role === 'superadmin'
+      ? '<span style="background:#8B0000;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Super Admin</span>'
+      : u.role === 'admin'
       ? '<span style="background:#16321f;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Admin</span>'
       : '<span style="background:#888;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Cajero</span>';
     const activeBadge = u.active
@@ -2056,7 +2237,7 @@ function showCreateUserModal() {
   var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
   var sel = document.createElement('select'); sel.id='um_role';
   sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
-  [['cashier','Cajero'],['admin','Administrador']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; sel.appendChild(o); }); box.appendChild(sel);
+  [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; sel.appendChild(o); }); box.appendChild(sel);
   var errDiv = document.createElement('div'); errDiv.id='um_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
   var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
   var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Crear usuario'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=submitCreateUser; btnRow.appendChild(bOk);
@@ -2081,7 +2262,7 @@ function showEditUserModal(id) {
   var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
   var sel = document.createElement('select'); sel.id='em_role';
   sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
-  [['cashier','Cajero'],['admin','Administrador']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; if(u.role===op[0]) o.selected=true; sel.appendChild(o); }); box.appendChild(sel);
+  [['cashier','Cajero'],['admin','Administrador'],['superadmin','Super Admin']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; if(u.role===op[0]) o.selected=true; sel.appendChild(o); }); box.appendChild(sel);
   var errDiv = document.createElement('div'); errDiv.id='em_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
   var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
   var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Guardar'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=function(){ submitEditUser(u.id); }; btnRow.appendChild(bOk);
@@ -2154,6 +2335,81 @@ async function deleteUser(id) {
   var r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
   var d=await r.json();
   if(r.ok) loadUsers(); else alert(d.error||'Error al eliminar');
+}
+
+async function showEditCustomerModal(id) {
+  const r = await fetch('/api/admin/customers/' + id + '/detail');
+  const d = await r.json();
+  if (!r.ok) { alert(d.error || 'Error'); return; }
+  const c = d.customer;
+
+  var ov = document.createElement('div');
+  ov.id = 'editCustModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;overflow-y:auto;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:420px;width:100%;box-sizing:border-box;';
+
+  function makeField(lbl, id, val, type) {
+    type = type || 'text';
+    var l = document.createElement('label');
+    l.style.cssText = 'display:block;font-size:13px;font-weight:600;margin-top:12px;margin-bottom:4px;color:#333;';
+    l.textContent = lbl;
+    var inp = document.createElement('input');
+    inp.id = id; inp.type = type; inp.value = val || '';
+    inp.style.cssText = 'width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;';
+    if (type === 'date') { inp.min = '1900-01-01'; inp.max = '2100-12-31'; }
+    if (id === 'ec_first_name' || id === 'ec_last_name') inp.style.textTransform = 'uppercase';
+    box.appendChild(l); box.appendChild(inp);
+  }
+
+  var h = document.createElement('h3'); h.style.marginTop = '0'; h.textContent = 'Editar cliente'; box.appendChild(h);
+  makeField('RUT', 'ec_rut', c.rut);
+  makeField('Nombre', 'ec_first_name', c.first_name);
+  makeField('Apellido', 'ec_last_name', c.last_name);
+  makeField('Correo', 'ec_email', c.email, 'email');
+  makeField('Teléfono', 'ec_whatsapp', c.whatsapp_number);
+  makeField('Fecha de nacimiento', 'ec_birth_date', c.birth_date, 'date');
+
+  var errDiv = document.createElement('div');
+  errDiv.id = 'ec_err';
+  errDiv.style.cssText = 'color:#a01818;font-size:13px;margin-top:10px;display:none;';
+  box.appendChild(errDiv);
+
+  var btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex;gap:8px;margin-top:18px;';
+  var bOk = document.createElement('button'); bOk.type = 'button'; bOk.textContent = 'Guardar cambios';
+  bOk.style.cssText = 'flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;';
+  bOk.onclick = function() { submitEditCustomer(id); };
+  var bCan = document.createElement('button'); bCan.type = 'button'; bCan.textContent = 'Cancelar';
+  bCan.style.cssText = 'flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;';
+  bCan.onclick = function() { var el = document.getElementById('editCustModal'); if(el) el.remove(); };
+  btnRow.appendChild(bOk); btnRow.appendChild(bCan);
+  box.appendChild(btnRow);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+async function submitEditCustomer(id) {
+  var err = document.getElementById('ec_err'); err.style.display = 'none';
+  var rutRaw = document.getElementById('ec_rut').value.trim();
+  var rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
+  var rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
+  var birthDate = document.getElementById('ec_birth_date').value;
+  if (birthDate) {
+    var yr = parseInt(birthDate.split('-')[0], 10);
+    if (yr < 1900 || yr > 2100) { err.textContent = 'Año de nacimiento inválido (1900-2100).'; err.style.display = 'block'; return; }
+  }
+  var body = {
+    rut: rut,
+    first_name: document.getElementById('ec_first_name').value.trim().toUpperCase(),
+    last_name:  document.getElementById('ec_last_name').value.trim().toUpperCase(),
+    email:      document.getElementById('ec_email').value.trim(),
+    whatsapp_number: document.getElementById('ec_whatsapp').value.trim(),
+    birth_date: birthDate
+  };
+  var r = await fetch('/api/admin/customers/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  var data = await r.json();
+  if (r.ok) { var el = document.getElementById('editCustModal'); if(el) el.remove(); loadCustomers(); }
+  else { err.textContent = data.error || 'Error al guardar.'; err.style.display = 'block'; }
 }
 
 function showAddCustomerModal() {
@@ -2839,91 +3095,93 @@ async function renderQrPosterPage(req, res) {
 }
 
 function renderTerminos(req, res) {
-  const fecha = '08 de julio de 2026';
+  // Leer config de TyC desde BD (tyc_config) o usar defaults
+  let cfg = {};
+  try { cfg = db.prepare('SELECT * FROM tyc_config WHERE id = 1').get() || {}; } catch(e) {}
+
+  const logoUrl   = cfg.logo_url   || 'https://i.imgur.com/nJrUCee.png';
+  const bgColor   = cfg.bg_color   || '#f4f4f5';
+  const cardColor = cfg.card_color || '#ffffff';
+  const titleColor= cfg.title_color|| '#16321f';
+  const h2Color   = cfg.h2_color   || '#16321f';
+  const textColor = cfg.text_color || '#333333';
+  const razonSocial   = cfg.razon_social   || 'Convenience de Chile SPA';
+  const rut           = cfg.rut            || '76.865.177-9';
+  const nombreFantasia= cfg.nombre_fantasia|| 'Get it';
+  const domicilio     = cfg.domicilio      || 'Santiago, Región Metropolitana, Chile';
+  const titulo        = cfg.titulo         || 'Términos y Condiciones del Club de Fidelización';
+  const fechaActualizacion = cfg.fecha_actualizacion || '08 de julio de 2026';
+  const s1_titulo = cfg.s1_titulo || '1. Aceptación de los términos';
+  const s1_texto  = cfg.s1_texto  || 'Al registrarte en el Club de Fidelización Get it, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones. Si no estás de acuerdo con alguno de ellos, no debes completar el registro.';
+  const s2_titulo = cfg.s2_titulo || '2. El programa de fidelización';
+  const s2_texto  = cfg.s2_texto  || 'El Club de Fidelización Get it es un programa administrado por Convenience de Chile SPA que permite a sus miembros acumular marcas por cada visita o compra realizada en los establecimientos participantes de la marca Get it.';
+  const s3_titulo = cfg.s3_titulo || '3. Registro y membresía';
+  const s3_texto  = cfg.s3_texto  || 'Para participar en el programa, el cliente debe registrarse proporcionando datos verídicos y actualizados. Cada persona puede tener una sola cuenta asociada a su RUT. El registro es personal e intransferible.';
+  const s4_titulo = cfg.s4_titulo || '4. Tratamiento de datos personales';
+  const s4_texto  = cfg.s4_texto  || 'De conformidad con la Ley N° 19.628 sobre Protección de la Vida Privada y sus modificaciones, Convenience de Chile SPA recopila y trata los datos personales de sus miembros exclusivamente para gestionar su membresía, acreditar marcas y canjes, y enviar comunicaciones sobre ofertas y beneficios del Club de Fidelización Get it. Convenience de Chile SPA no compartirá, venderá ni cederá estos datos a terceros sin el consentimiento expreso del titular, salvo que sea requerido por ley o autoridad competente.';
+  const s5_titulo = cfg.s5_titulo || '5. Derechos del titular de datos';
+  const s5_texto  = cfg.s5_texto  || 'Conforme a la Ley N° 19.628, el cliente tiene derecho a acceder, rectificar y solicitar la eliminación de sus datos personales, así como revocar el consentimiento para el envío de comunicaciones comerciales. Para ejercer estos derechos, el cliente puede contactar directamente a un establecimiento Get it o escribir a través de los canales oficiales de la empresa.';
+  const s6_titulo = cfg.s6_titulo || '6. Seguridad de la información';
+  const s6_texto  = cfg.s6_texto  || 'Convenience de Chile SPA adopta medidas técnicas y organizativas razonables para proteger los datos personales de sus miembros contra accesos no autorizados, pérdida o alteración.';
+  const s7_titulo = cfg.s7_titulo || '7. Modificaciones';
+  const s7_texto  = cfg.s7_texto  || 'Convenience de Chile SPA se reserva el derecho de actualizar estos Términos y Condiciones. Las modificaciones serán informadas a través de los canales del programa y entrarán en vigencia desde su publicación. El uso continuado del programa implica la aceptación de los términos actualizados.';
+  const s8_titulo = cfg.s8_titulo || '8. Legislación aplicable';
+  const s8_texto  = cfg.s8_texto  || 'Estos Términos y Condiciones se rigen por las leyes de la República de Chile. Cualquier controversia derivada del presente programa será sometida a los tribunales ordinarios de justicia de Santiago.';
+
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Términos y Condiciones — Club de Fidelización GETit</title>
+<title>${titulo}</title>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;color:#333;}
-  .wrap{max-width:680px;margin:0 auto;background:#fff;border-radius:12px;padding:32px 28px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+  body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;color:${textColor};}
+  .wrap{max-width:680px;margin:0 auto;background:${cardColor};border-radius:12px;padding:32px 28px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
   .logo{text-align:center;margin-bottom:20px;}
   .logo img{max-width:120px;object-fit:contain;}
-  h1{font-size:20px;color:#16321f;margin-bottom:4px;}
+  h1{font-size:20px;color:${titleColor};margin-bottom:4px;}
   .meta{font-size:12px;color:#888;margin-bottom:28px;}
-  h2{font-size:15px;color:#16321f;margin-top:28px;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;}
+  h2{font-size:15px;color:${h2Color};margin-top:28px;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;}
   p,li{font-size:14px;line-height:1.7;margin-bottom:8px;}
   ul{padding-left:20px;}
-  .back{display:inline-block;margin-top:24px;font-size:13px;color:#16321f;font-weight:600;text-decoration:none;}
+  .back{display:inline-block;margin-top:24px;font-size:13px;color:${titleColor};font-weight:600;text-decoration:none;}
   .empresa{background:#f7f7f7;border-radius:8px;padding:12px 16px;font-size:13px;margin-bottom:24px;line-height:1.8;}
 </style></head>
 <body>
 <div class="wrap">
-  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
-  <h1>Términos y Condiciones del Club de Fidelización</h1>
-  <div class="meta">Última actualización: ${fecha}</div>
-
+  <div class="logo"><img src="${logoUrl}" alt="Get it" onerror="this.style.display='none'"></div>
+  <h1>${titulo}</h1>
+  <div class="meta">Última actualización: ${fechaActualizacion}</div>
   <div class="empresa">
-    <strong>Razón social:</strong> Convenience de Chile SpA<br>
-    <strong>RUT:</strong> 76.865.177-9<br>
-    <strong>Nombre de fantasía:</strong> Get it (GETit)<br>
-    <strong>Domicilio:</strong> Santiago, Región Metropolitana, Chile
+    <strong>Razón social:</strong> ${razonSocial}<br>
+    <strong>RUT:</strong> ${rut}<br>
+    <strong>Nombre de fantasía:</strong> ${nombreFantasia}<br>
+    <strong>Domicilio:</strong> ${domicilio}
   </div>
-
-  <h2>1. Aceptación de los términos</h2>
-  <p>Al registrarte en el Club de Fidelización GETit, declaras haber leído, comprendido y aceptado los presentes Términos y Condiciones. Si no estás de acuerdo con alguno de ellos, no debes completar el registro.</p>
-
-  <h2>2. El programa de fidelización</h2>
-  <p>El Club de Fidelización GETit es un programa administrado por Convenience de Chile SpA que permite a sus miembros acumular marcas por cada visita o compra realizada en los establecimientos participantes de la marca Get it.</p>
+  <h2>${s1_titulo}</h2><p>${s1_texto}</p>
+  <h2>${s2_titulo}</h2><p>${s2_texto}</p>
   <ul>
     <li>Cada compra válida otorga una (1) marca en la tarjeta digital del cliente.</li>
     <li>Al completar el número de marcas definido por el programa vigente, el cliente obtiene el derecho a canjear el premio correspondiente.</li>
     <li>Las marcas no son transferibles, no tienen valor monetario y no pueden canjearse por dinero en efectivo.</li>
-    <li>Convenience de Chile SpA se reserva el derecho de modificar las condiciones del programa, incluyendo la cantidad de marcas requeridas y los premios disponibles, con aviso previo a través de los canales oficiales.</li>
+    <li>Convenience de Chile SPA se reserva el derecho de modificar las condiciones del programa, incluyendo la cantidad de marcas requeridas y los premios disponibles, con aviso previo a través de los canales oficiales.</li>
   </ul>
-
-  <h2>3. Registro y membresía</h2>
-  <p>Para participar en el programa, el cliente debe registrarse proporcionando datos verídicos y actualizados. Cada persona puede tener una sola cuenta asociada a su RUT. El registro es personal e intransferible.</p>
-
-  <h2>4. Tratamiento de datos personales</h2>
-  <p>De conformidad con la Ley N° 19.628 sobre Protección de la Vida Privada y sus modificaciones, Convenience de Chile SpA recopila y trata los siguientes datos personales de sus miembros:</p>
+  <h2>${s3_titulo}</h2><p>${s3_texto}</p>
+  <h2>${s4_titulo}</h2><p>${s4_texto}</p>
   <ul>
-    <li>Nombre y apellido</li>
-    <li>RUT</li>
-    <li>Correo electrónico</li>
-    <li>Número de teléfono</li>
-    <li>Fecha de nacimiento</li>
+    <li>Nombre y apellido</li><li>RUT</li><li>Correo electrónico</li>
+    <li>Número de teléfono</li><li>Fecha de nacimiento</li>
     <li>Historial de visitas y compras asociadas al programa</li>
   </ul>
-  <p>Estos datos serán utilizados <strong>exclusivamente</strong> para los siguientes fines:</p>
-  <ul>
-    <li>Gestionar la membresía y tarjeta de fidelización del cliente.</li>
-    <li>Acreditar y registrar marcas y canjes de premios.</li>
-    <li>Enviar comunicaciones sobre ofertas, promociones y beneficios del Club de Fidelización GETit.</li>
-    <li>Mejorar la experiencia del cliente dentro del programa.</li>
-  </ul>
-  <p>Convenience de Chile SpA <strong>no compartirá, venderá ni cederá</strong> los datos personales de sus miembros a terceros sin el consentimiento expreso del titular, salvo que sea requerido por ley o autoridad competente.</p>
-
-  <h2>5. Derechos del titular de datos</h2>
-  <p>Conforme a la legislación vigente, el cliente tiene derecho a:</p>
+  <h2>${s5_titulo}</h2><p>${s5_texto}</p>
   <ul>
     <li>Acceder a sus datos personales registrados.</li>
     <li>Rectificar datos incorrectos o desactualizados.</li>
     <li>Solicitar la eliminación de sus datos y cancelación de su membresía.</li>
     <li>Revocar el consentimiento para el envío de comunicaciones comerciales.</li>
   </ul>
-  <p>Para ejercer estos derechos, el cliente puede contactar directamente a un establecimiento Get it o escribir a través de los canales oficiales de la empresa.</p>
-
-  <h2>6. Seguridad de la información</h2>
-  <p>Convenience de Chile SpA adopta medidas técnicas y organizativas razonables para proteger los datos personales de sus miembros contra accesos no autorizados, pérdida o alteración.</p>
-
-  <h2>7. Modificaciones</h2>
-  <p>Convenience de Chile SpA se reserva el derecho de actualizar estos Términos y Condiciones. Las modificaciones serán informadas a través de los canales del programa y entrarán en vigencia desde su publicación. El uso continuado del programa implica la aceptación de los términos actualizados.</p>
-
-  <h2>8. Legislación aplicable</h2>
-  <p>Estos Términos y Condiciones se rigen por las leyes de la República de Chile. Cualquier controversia derivada del presente programa será sometida a los tribunales ordinarios de justicia de Santiago.</p>
-
+  <h2>${s6_titulo}</h2><p>${s6_texto}</p>
+  <h2>${s7_titulo}</h2><p>${s7_texto}</p>
+  <h2>${s8_titulo}</h2><p>${s8_texto}</p>
   <a class="back" href="/registro">← Volver al registro</a>
 </div>
 </body></html>`);
@@ -2995,6 +3253,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE' && pathName.match(/^\/api\/admin\/users\/\d+$/)) return deleteUser(req, res, pathName.split('/')[4]);
     if (req.method === 'GET' && pathName === '/api/admin/registro-config') return getRegistroConfig(req, res);
     if (req.method === 'PUT' && pathName === '/api/admin/registro-config') return await updateRegistroConfig(req, res);
+    if (req.method === 'GET' && pathName === '/api/admin/tyc-config') return getTycConfig(req, res);
+    if (req.method === 'PUT' && pathName === '/api/admin/tyc-config') return await updateTycConfig(req, res);
     if (req.method === 'GET' && pathName === '/api/admin/login-config') return getLoginConfig(req, res);
     if (req.method === 'PUT' && pathName === '/api/admin/login-config') return await updateLoginConfig(req, res);
     if (req.method === 'GET' && pathName === '/terminos') return renderTerminos(req, res);
