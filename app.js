@@ -232,18 +232,36 @@ try {
     logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
     titulo TEXT DEFAULT 'Club de Fidelización',
     subtitulo TEXT DEFAULT 'Regístrate y acumula marcas con tus compras',
+    bg_color TEXT DEFAULT '#f4f4f5',
     btn_color TEXT DEFAULT '#16321f',
     btn_texto TEXT DEFAULT 'Crear mi tarjeta',
+    campo_rut INTEGER DEFAULT 1,
+    campo_nombre INTEGER DEFAULT 1,
+    campo_apellido INTEGER DEFAULT 1,
+    campo_correo INTEGER DEFAULT 1,
     campo_telefono INTEGER DEFAULT 1,
     campo_nacimiento INTEGER DEFAULT 1,
-    campo_correo INTEGER DEFAULT 1,
     chk1_texto TEXT DEFAULT 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.',
     chk2_texto TEXT DEFAULT 'Autorizo a GETit a usar mis datos personales (nombre, correo, teléfono y fecha de nacimiento) para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.',
     tyc_texto TEXT DEFAULT ''
   )`);
-  // Insertar fila default si no existe
   const exists = db.prepare('SELECT id FROM registro_config WHERE id = 1').get();
   if (!exists) db.prepare('INSERT INTO registro_config (id) VALUES (1)').run();
+  // Migración: agregar bg_color si no existe
+  try { db.exec("ALTER TABLE registro_config ADD COLUMN bg_color TEXT DEFAULT '#f4f4f5'"); } catch(e) {}
+  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_rut INTEGER DEFAULT 1"); } catch(e) {}
+  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_nombre INTEGER DEFAULT 1"); } catch(e) {}
+  try { db.exec("ALTER TABLE registro_config ADD COLUMN campo_apellido INTEGER DEFAULT 1"); } catch(e) {}
+
+  db.exec(`CREATE TABLE IF NOT EXISTS login_config (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    logo_url TEXT DEFAULT 'https://i.imgur.com/nJrUCee.png',
+    bg_color TEXT DEFAULT '#f4f4f5',
+    btn_color TEXT DEFAULT '#16321f',
+    btn_texto TEXT DEFAULT 'Ingresar'
+  )`);
+  const existsLogin = db.prepare('SELECT id FROM login_config WHERE id = 1').get();
+  if (!existsLogin) db.prepare('INSERT INTO login_config (id) VALUES (1)').run();
 } catch (e) { /* ya existe */ }
 
 function genShortCode() {
@@ -441,7 +459,7 @@ async function createCustomer(req, res) {
   }
 
   const cleanRut = rut.trim().replace(/\./g, '').toUpperCase();
-  if (!isValidRut(cleanRut)) {
+  if (!cleanRut.startsWith('TEMP-') && !isValidRut(cleanRut)) {
     return sendJSON(res, 400, { error: 'RUT inválido. Formato esperado: 12345678-9 (sin puntos, con guión).' });
   }
 
@@ -859,35 +877,39 @@ async function updateProgramDesign(req, res, id) {
 }
 
 function renderLoginUnificado(req, res) {
-  // Si ya tiene sesión válida, redirigir según rol
   const staff = getAuthenticatedStaff(req);
   if (staff) {
     res.writeHead(302, { Location: staff.role === 'admin' ? '/admin' : '/caja' });
     return res.end();
   }
+  const cfg = db.prepare('SELECT * FROM login_config WHERE id = 1').get() || {};
+  const logoUrl = cfg.logo_url || 'https://i.imgur.com/nJrUCee.png';
+  const bgColor = cfg.bg_color || '#f4f4f5';
+  const btnColor = cfg.btn_color || '#16321f';
+  const btnTexto = cfg.btn_texto || 'Ingresar';
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Acceso — GETit</title>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
   .panel{max-width:380px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:20px;}
   .logo img{max-width:120px;max-height:60px;object-fit:contain;}
-  h2{margin-top:0;text-align:center;color:#16321f;}
+  h2{margin-top:0;text-align:center;color:#333;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
   input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
-  input:focus{outline:none;border-color:#16321f;}
+  input:focus{outline:none;border-color:${btnColor};}
   .pwdwrap{position:relative;}
   .pwdwrap input{padding-right:40px;}
   .eyebtn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;margin:0;width:auto;color:#666;}
-  button[type=submit]{margin-top:20px;width:100%;padding:12px;background:#16321f;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;font-weight:600;}
+  button[type=submit]{margin-top:20px;width:100%;padding:12px;background:${btnColor};color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;font-weight:600;}
   .err{margin-top:14px;padding:12px;border-radius:8px;font-size:14px;background:#fdeaea;color:#a01818;display:none;}
 </style></head>
 <body>
 <div class="panel">
-  <div class="logo"><img src="https://i.imgur.com/nJrUCee.png" alt="GETit"></div>
+  <div class="logo"><img src="${logoUrl}" alt="GETit" onerror="this.style.display='none'"></div>
   <h2>Acceso al sistema</h2>
   <form id="loginForm">
     <label>Usuario</label>
@@ -897,7 +919,7 @@ function renderLoginUnificado(req, res) {
       <input name="password" type="password" id="pwdInput" required>
       <button type="button" class="eyebtn" onclick="togglePwd()">👁</button>
     </div>
-    <button type="submit">Ingresar</button>
+    <button type="submit">${btnTexto}</button>
   </form>
   <div class="err" id="loginErr"></div>
 </div>
@@ -910,14 +932,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const r = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: f.username.value, password: f.password.value })
   });
   const data = await r.json();
   const err = document.getElementById('loginErr');
   if (r.ok) {
-    // Redirigir según rol
     window.location.href = data.staff.role === 'admin' ? '/admin' : '/caja';
   } else {
     err.style.display = 'block';
@@ -1094,6 +1114,124 @@ async function importSales(req, res) {
   sendJSON(res, 200, { inserted });
 }
 
+// ── Gestión de usuarios ──────────────────────────────────
+function listUsers(req, res) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const rows = db.prepare(`
+    SELECT id, name, username, email, role, active, branch_id,
+           (SELECT COUNT(*) FROM sessions WHERE staff_id = staff_users.id AND expires_at > ?) as active_sessions
+    FROM staff_users ORDER BY id ASC
+  `).all(Date.now());
+  sendJSON(res, 200, rows);
+}
+
+async function createUser(req, res) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const { name, username, password, role, branch_id } = body;
+  if (!name || !username || !password || !role) {
+    return sendJSON(res, 400, { error: 'Faltan campos: name, username, password, role' });
+  }
+  if (!['cashier','admin'].includes(role)) {
+    return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier o admin.' });
+  }
+  if (password.length < 4) {
+    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
+  }
+  try {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+    const email = `${username}@local.app`;
+    const result = db.prepare(
+      'INSERT INTO staff_users (branch_id, name, username, email, password_hash, role) VALUES (?,?,?,?,?,?)'
+    ).run(branch_id || 1, name.trim(), username.trim().toLowerCase(), email, `${salt}:${hash}`, role);
+    logAudit(staff.id, 'create', 'staff_user', Number(result.lastInsertRowid), null, { name, username, role });
+    sendJSON(res, 201, { created: true, id: Number(result.lastInsertRowid) });
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return sendJSON(res, 409, { error: 'El nombre de usuario ya existe.' });
+    sendJSON(res, 500, { error: err.message });
+  }
+}
+
+async function resetUserPassword(req, res, id) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const { password } = body;
+  if (!password || password.length < 4) {
+    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
+  }
+  const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
+  if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  db.prepare('UPDATE staff_users SET password_hash = ? WHERE id = ?').run(`${salt}:${hash}`, id);
+  // Cerrar sesiones activas del usuario
+  db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(id);
+  logAudit(staff.id, 'reset_password', 'staff_user', Number(id), null, null);
+  sendJSON(res, 200, { updated: true });
+}
+
+async function updateUser(req, res, id) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
+  if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
+  // No permitir que el admin se desactive a sí mismo
+  if (Number(id) === staff.id && body.active === 0) {
+    return sendJSON(res, 400, { error: 'No puedes desactivarte a ti mismo.' });
+  }
+  const updated = {
+    name: body.name ?? target.name,
+    role: body.role ?? target.role,
+    active: body.active ?? target.active,
+    branch_id: body.branch_id ?? target.branch_id
+  };
+  if (!['cashier','admin'].includes(updated.role)) {
+    return sendJSON(res, 400, { error: 'Rol inválido.' });
+  }
+  db.prepare('UPDATE staff_users SET name=?, role=?, active=?, branch_id=? WHERE id=?')
+    .run(updated.name, updated.role, updated.active, updated.branch_id, id);
+  if (body.active === 0) {
+    db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(id);
+  }
+  logAudit(staff.id, 'update', 'staff_user', Number(id), target, updated);
+  sendJSON(res, 200, { updated: true });
+}
+
+function deleteUser(req, res, id) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  if (Number(id) === staff.id) {
+    return sendJSON(res, 400, { error: 'No puedes eliminar tu propio usuario.' });
+  }
+  const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
+  if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
+  db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(id);
+  db.prepare('DELETE FROM staff_users WHERE id = ?').run(id);
+  logAudit(staff.id, 'delete', 'staff_user', Number(id), target, null);
+  sendJSON(res, 200, { deleted: true });
+}
+
+function getLoginConfig(req, res) {
+  const cfg = db.prepare('SELECT * FROM login_config WHERE id = 1').get();
+  sendJSON(res, 200, cfg || {});
+}
+
+async function updateLoginConfig(req, res) {
+  const staff = requireAdmin(req, res);
+  if (!staff) return;
+  const body = await readBody(req);
+  const fields = ['logo_url','bg_color','btn_color','btn_texto'];
+  const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
+  const vals = fields.filter(f => body[f] !== undefined).map(f => body[f]);
+  if (sets) db.prepare(`UPDATE login_config SET ${sets} WHERE id = 1`).run(...vals);
+  sendJSON(res, 200, { updated: true });
+}
+
 function getRegistroConfig(req, res) {
   const cfg = db.prepare('SELECT * FROM registro_config WHERE id = 1').get();
   sendJSON(res, 200, cfg || {});
@@ -1103,8 +1241,9 @@ async function updateRegistroConfig(req, res) {
   const staff = requireAdmin(req, res);
   if (!staff) return;
   const body = await readBody(req);
-  const fields = ['logo_url','titulo','subtitulo','btn_color','btn_texto',
-    'campo_telefono','campo_nacimiento','campo_correo','chk1_texto','chk2_texto','tyc_texto'];
+  const fields = ['logo_url','titulo','subtitulo','bg_color','btn_color','btn_texto',
+    'campo_rut','campo_nombre','campo_apellido','campo_correo','campo_telefono','campo_nacimiento',
+    'chk1_texto','chk2_texto','tyc_texto'];
   const sets = fields.filter(f => body[f] !== undefined).map(f => `${f} = ?`).join(', ');
   const vals = fields.filter(f => body[f] !== undefined).map(f => body[f]);
   if (sets) db.prepare(`UPDATE registro_config SET ${sets} WHERE id = 1`).run(...vals);
@@ -1198,7 +1337,7 @@ function getDashboardStats() {
 function renderAdminPage(req, res) {
   const staff = getAuthenticatedStaff(req);
   if (!staff || staff.role !== 'admin') {
-    return renderLoginPage(res, '/admin', 'Acceso de administrador');
+    res.writeHead(302, { Location: '/login' }); return res.end();
   }
   const programs = db.prepare('SELECT * FROM loyalty_programs').all();
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1266,7 +1405,8 @@ function renderAdminPage(req, res) {
   <div class="tabs">
     <button type="button" class="tabbtn active" id="tabBtnClientes" onclick="switchAdminTab('clientes')">Clientes</button>
     <button type="button" class="tabbtn" id="tabBtnDiseno" onclick="switchAdminTab('diseno')">Diseño de tarjeta</button>
-    <button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz de registro</button>
+    <button type="button" class="tabbtn" id="tabBtnRegistro" onclick="switchAdminTab('registro')">Interfaz editable</button>
+    <button type="button" class="tabbtn" id="tabBtnUsuarios" onclick="switchAdminTab('usuarios')">Usuarios</button>
   </div>
 
   <!-- PESTAÑA CLIENTES -->
@@ -1297,12 +1437,58 @@ function renderAdminPage(req, res) {
     <div id="detailPanel" style="display:none;margin-top:20px;border-top:2px solid #eee;padding-top:16px;"></div>
   </div>
 
-  <!-- PESTAÑA INTERFAZ DE REGISTRO -->
+  <!-- PESTAÑA INTERFAZ EDITABLE -->
   <div id="tabRegistro" style="display:none;">
-    <div class="panel">
+    <div class="panel" style="margin-bottom:12px;">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="button" id="btnEdLogin" onclick="showIface('login')" style="flex:1;background:#16321f;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🔐 Editar Login</button>
+        <button type="button" id="btnEdRegistro" onclick="showIface('registro')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">📋 Editar Registro</button>
+      </div>
+    </div>
+
+    <!-- SUB-PANEL LOGIN -->
+    <div id="ifaceLogin" class="panel">
       <div class="design-wrap">
         <div class="formcol">
-          <h2>Interfaz de registro</h2>
+          <h2>Editar Login</h2>
+          <form onsubmit="saveLoginConfig(event)">
+            <label>Logo (URL)</label>
+            <input type="url" id="lc_logo" placeholder="https://i.imgur.com/..." oninput="updateLoginPreview()">
+            <label>Color de fondo</label>
+            <div class="colorrow">
+              <input type="color" id="lc_bg_picker" oninput="syncLoginColor('bg',this.value)">
+              <input type="text" id="lc_bg_color" oninput="syncLoginColorText('bg',this.value)">
+            </div>
+            <label>Color del botón</label>
+            <div class="colorrow">
+              <input type="color" id="lc_btn_picker" oninput="syncLoginColor('btn',this.value)">
+              <input type="text" id="lc_btn_color" oninput="syncLoginColorText('btn',this.value)">
+            </div>
+            <label>Texto del botón</label>
+            <input type="text" id="lc_btn_texto" oninput="updateLoginPreview()">
+            <button type="submit" style="margin-top:18px;">Guardar Login</button>
+            <div class="msg" id="lc_msg"></div>
+          </form>
+        </div>
+        <div class="previewcol" style="width:200px;">
+          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px;">Vista previa</div>
+          <div id="lp_wrap" style="border-radius:10px;padding:16px;width:180px;font-size:12px;">
+            <div style="text-align:center;margin-bottom:10px;"><img id="lp_logo" style="max-width:80px;max-height:40px;object-fit:contain;"></div>
+            <div style="font-size:13px;font-weight:700;text-align:center;margin-bottom:10px;color:#333;">Acceso al sistema</div>
+            <div style="background:#eee;border-radius:5px;height:28px;margin-bottom:6px;"></div>
+            <div style="background:#eee;border-radius:5px;height:28px;margin-bottom:10px;"></div>
+            <div id="lp_btn" style="border-radius:6px;padding:8px;text-align:center;color:#fff;font-weight:700;font-size:12px;"></div>
+          </div>
+          <div style="font-size:11px;color:#999;margin-top:8px;">Vista previa en vivo</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUB-PANEL REGISTRO -->
+    <div id="ifaceRegistro" class="panel" style="display:none;">
+      <div class="design-wrap">
+        <div class="formcol">
+          <h2>Editar Registro</h2>
           <form onsubmit="saveRegistroConfig(event)">
             <label>Logo (URL)</label>
             <input type="url" id="rc_logo" placeholder="https://i.imgur.com/..." oninput="updateRegPreview()">
@@ -1310,6 +1496,11 @@ function renderAdminPage(req, res) {
             <input type="text" id="rc_titulo" oninput="updateRegPreview()">
             <label>Subtítulo</label>
             <input type="text" id="rc_subtitulo" oninput="updateRegPreview()">
+            <label>Color de fondo</label>
+            <div class="colorrow">
+              <input type="color" id="rc_bg_picker" oninput="syncRegBgColor(this.value)">
+              <input type="text" id="rc_bg_color" oninput="syncRegBgColorText(this.value)">
+            </div>
             <label>Color del botón</label>
             <div class="colorrow">
               <input type="color" id="rc_btn_color_picker" oninput="syncRegColor(this.value)">
@@ -1317,51 +1508,56 @@ function renderAdminPage(req, res) {
             </div>
             <label>Texto del botón</label>
             <input type="text" id="rc_btn_texto" oninput="updateRegPreview()">
-
             <label style="margin-top:18px;">Campos visibles</label>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
-              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
-                <input type="checkbox" id="rc_telefono" onchange="updateRegPreview()"> Teléfono
-              </label>
-              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
-                <input type="checkbox" id="rc_nacimiento" onchange="updateRegPreview()"> Fecha de nacimiento
-              </label>
-              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;">
-                <input type="checkbox" id="rc_correo" onchange="updateRegPreview()"> Correo electrónico
-              </label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_rut" onchange="updateRegPreview()"> RUT</label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_nombre" onchange="updateRegPreview()"> Nombre</label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_apellido" onchange="updateRegPreview()"> Apellido</label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_correo" onchange="updateRegPreview()"> Correo electrónico</label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_telefono" onchange="updateRegPreview()"> Teléfono</label>
+              <label style="margin:0;display:flex;align-items:center;gap:8px;font-weight:400;font-size:14px;"><input type="checkbox" id="rc_nacimiento" onchange="updateRegPreview()"> Fecha de nacimiento</label>
             </div>
-
-            <label style="margin-top:18px;">Texto checkbox 1 (Términos)</label>
+            <label style="margin-top:18px;">Texto checkbox 1</label>
             <textarea id="rc_chk1" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
-
-            <label>Texto checkbox 2 (Datos personales)</label>
+            <label>Texto checkbox 2</label>
             <textarea id="rc_chk2" rows="4" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;" oninput="updateRegPreview()"></textarea>
-
-            <label>Términos y Condiciones (texto completo)</label>
-            <div style="font-size:11px;color:#888;margin-bottom:6px;">Este texto aparece en la página /terminos que el cliente puede abrir desde el registro.</div>
-            <textarea id="rc_tyc" rows="10" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;font-family:monospace;"></textarea>
-
-            <button type="submit" style="margin-top:18px;">Guardar cambios</button>
+            <button type="button" onclick="showTycEditor()" style="margin-top:14px;width:100%;background:#444;color:#fff;border:none;border-radius:6px;padding:10px;cursor:pointer;font-size:14px;">📄 Editar Términos y Condiciones</button>
+            <button type="submit" style="margin-top:10px;">Guardar Registro</button>
             <div class="msg" id="rc_msg"></div>
           </form>
         </div>
-        <div class="previewcol" style="width:240px;">
+        <div class="previewcol" style="width:220px;">
           <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px;">Vista previa</div>
-          <div id="reg_preview" style="background:#f4f4f5;border-radius:12px;padding:16px;width:220px;font-family:-apple-system,system-ui,sans-serif;font-size:12px;">
-            <div style="text-align:center;margin-bottom:10px;"><img id="rp_logo" style="max-width:100px;max-height:50px;object-fit:contain;"></div>
-            <div id="rp_titulo" style="font-size:14px;font-weight:700;text-align:center;color:#16321f;margin-bottom:2px;"></div>
-            <div id="rp_sub" style="font-size:11px;color:#666;text-align:center;margin-bottom:12px;"></div>
-            <div style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
-            <div style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
-            <div id="rp_email_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
-            <div id="rp_tel_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:6px;"></div>
-            <div id="rp_nac_row" style="background:#ddd;border-radius:6px;height:24px;margin-bottom:10px;"></div>
-            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;font-size:10px;color:#444;"><div style="width:12px;height:12px;min-width:12px;border:1.5px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk1" style="line-height:1.4;"></span></div>
-            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px;font-size:10px;color:#444;"><div style="width:12px;height:12px;min-width:12px;border:1.5px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk2" style="line-height:1.4;"></span></div>
-            <div id="rp_btn" style="border-radius:7px;padding:8px;text-align:center;color:#fff;font-weight:700;font-size:12px;"></div>
+          <div id="reg_preview" style="border-radius:12px;padding:14px;width:200px;font-size:11px;">
+            <div style="text-align:center;margin-bottom:8px;"><img id="rp_logo" style="max-width:90px;max-height:44px;object-fit:contain;"></div>
+            <div id="rp_titulo" style="font-size:13px;font-weight:700;text-align:center;margin-bottom:2px;"></div>
+            <div id="rp_sub" style="font-size:10px;color:#666;text-align:center;margin-bottom:10px;"></div>
+            <div id="rp_rut_row"    style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">RUT</div>
+            <div id="rp_nombre_row" style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">Nombre</div>
+            <div id="rp_apell_row"  style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">Apellido</div>
+            <div id="rp_email_row"  style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">Correo</div>
+            <div id="rp_tel_row"    style="background:#ddd;border-radius:5px;height:18px;margin-bottom:4px;font-size:9px;color:#666;padding:2px 6px;">Teléfono</div>
+            <div id="rp_nac_row"    style="background:#ddd;border-radius:5px;height:18px;margin-bottom:8px;font-size:9px;color:#666;padding:2px 6px;">Fecha de nacimiento</div>
+            <div style="display:flex;gap:5px;margin-bottom:4px;font-size:9px;color:#444;align-items:flex-start;"><div style="width:10px;height:10px;min-width:10px;border:1px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk1" style="line-height:1.3;"></span></div>
+            <div style="display:flex;gap:5px;margin-bottom:8px;font-size:9px;color:#444;align-items:flex-start;"><div style="width:10px;height:10px;min-width:10px;border:1px solid #aaa;border-radius:2px;margin-top:1px;"></div><span id="rp_chk2" style="line-height:1.3;"></span></div>
+            <div id="rp_btn" style="border-radius:6px;padding:7px;text-align:center;color:#fff;font-weight:700;font-size:11px;"></div>
           </div>
           <div style="font-size:11px;color:#999;margin-top:8px;">Vista previa en vivo</div>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL TYC -->
+    <div id="tycModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:none;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;">
+      <div style="background:#fff;border-radius:12px;padding:24px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;box-sizing:border-box;">
+        <h3 style="margin-top:0;">Editar Términos y Condiciones</h3>
+        <p style="font-size:12px;color:#888;">Este texto aparece en <strong>/terminos</strong> cuando el cliente hace click en el link del registro.</p>
+        <textarea id="rc_tyc" rows="20" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;resize:vertical;font-family:monospace;box-sizing:border-box;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button type="button" onclick="saveTyc()" style="flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Guardar TyC</button>
+          <button type="button" onclick="closeTycModal()" style="flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;">Cancelar</button>
+        </div>
+        <div class="msg" id="tyc_msg" style="margin-top:8px;"></div>
       </div>
     </div>
   </div>
@@ -1427,17 +1623,40 @@ function renderAdminPage(req, res) {
     </div>
   </div>`).join('')}
   </div>
+
+  <!-- PESTAÑA USUARIOS -->
+  <div id="tabUsuarios" style="display:none;">
+    <div class="panel">
+      <h2>Gestión de usuarios</h2>
+      <div class="btnrow">
+        <button type="button" onclick="showCreateUserModal()" style="background:#16321f;">+ Nuevo usuario</button>
+      </div>
+      <div class="overflow-x">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 function switchAdminTab(tab) {
-  ['clientes','diseno','registro'].forEach(t => {
-    document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'tabbtn' + (tab === t ? ' active' : '');
+  ['clientes','diseno','registro','usuarios'].forEach(t => {
+    const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.className = 'tabbtn' + (tab === t ? ' active' : '');
   });
-  document.getElementById('tabClientes').style.display = tab === 'clientes' ? 'block' : 'none';
-  document.getElementById('tabDiseno').style.display   = tab === 'diseno'   ? 'block' : 'none';
-  document.getElementById('tabRegistro').style.display = tab === 'registro' ? 'block' : 'none';
+  document.getElementById('tabClientes').style.display  = tab === 'clientes'  ? 'block' : 'none';
+  document.getElementById('tabDiseno').style.display    = tab === 'diseno'    ? 'block' : 'none';
+  document.getElementById('tabRegistro').style.display  = tab === 'registro'  ? 'block' : 'none';
+  document.getElementById('tabUsuarios').style.display  = tab === 'usuarios'  ? 'block' : 'none';
   if (tab === 'clientes') loadCustomers();
-  if (tab === 'registro') loadRegistroConfig();
+  if (tab === 'registro') showIface('login');
+  if (tab === 'usuarios') loadUsers();
 }
 
 async function logout() {
@@ -1615,77 +1834,317 @@ async function loadRegistroConfig() {
   document.getElementById('rc_logo').value = cfg.logo_url || '';
   document.getElementById('rc_titulo').value = cfg.titulo || '';
   document.getElementById('rc_subtitulo').value = cfg.subtitulo || '';
+  document.getElementById('rc_bg_color').value = cfg.bg_color || '#f4f4f5';
+  document.getElementById('rc_bg_picker').value = cfg.bg_color || '#f4f4f5';
   document.getElementById('rc_btn_color').value = cfg.btn_color || '#16321f';
   document.getElementById('rc_btn_color_picker').value = cfg.btn_color || '#16321f';
   document.getElementById('rc_btn_texto').value = cfg.btn_texto || '';
+  document.getElementById('rc_rut').checked      = cfg.campo_rut !== 0;
+  document.getElementById('rc_nombre').checked   = cfg.campo_nombre !== 0;
+  document.getElementById('rc_apellido').checked = cfg.campo_apellido !== 0;
+  document.getElementById('rc_correo').checked   = cfg.campo_correo !== 0;
   document.getElementById('rc_telefono').checked = cfg.campo_telefono !== 0;
   document.getElementById('rc_nacimiento').checked = cfg.campo_nacimiento !== 0;
-  document.getElementById('rc_correo').checked = cfg.campo_correo !== 0;
   document.getElementById('rc_chk1').value = cfg.chk1_texto || '';
   document.getElementById('rc_chk2').value = cfg.chk2_texto || '';
   document.getElementById('rc_tyc').value = cfg.tyc_texto || '';
   updateRegPreview();
 }
 
-function syncRegColor(val) {
-  document.getElementById('rc_btn_color').value = val;
-  updateRegPreview();
-}
-function syncRegColorText(val) {
-  if (/^#[0-9A-Fa-f]{6}$/.test(val.trim())) {
-    document.getElementById('rc_btn_color_picker').value = val.trim();
-    updateRegPreview();
-  }
+async function loadLoginConfig() {
+  const r = await fetch('/api/admin/login-config');
+  const cfg = await r.json();
+  document.getElementById('lc_logo').value = cfg.logo_url || '';
+  document.getElementById('lc_bg_color').value = cfg.bg_color || '#f4f4f5';
+  document.getElementById('lc_bg_picker').value = cfg.bg_color || '#f4f4f5';
+  document.getElementById('lc_btn_color').value = cfg.btn_color || '#16321f';
+  document.getElementById('lc_btn_picker').value = cfg.btn_color || '#16321f';
+  document.getElementById('lc_btn_texto').value = cfg.btn_texto || '';
+  updateLoginPreview();
 }
 
+function showIface(which) {
+  document.getElementById('ifaceLogin').style.display = which === 'login' ? 'block' : 'none';
+  document.getElementById('ifaceRegistro').style.display = which === 'registro' ? 'block' : 'none';
+  document.getElementById('btnEdLogin').style.background = which === 'login' ? '#16321f' : '#ddd';
+  document.getElementById('btnEdLogin').style.color = which === 'login' ? '#fff' : '#333';
+  document.getElementById('btnEdRegistro').style.background = which === 'registro' ? '#16321f' : '#ddd';
+  document.getElementById('btnEdRegistro').style.color = which === 'registro' ? '#fff' : '#333';
+  if (which === 'login') loadLoginConfig();
+  if (which === 'registro') loadRegistroConfig();
+}
+
+// ── Login preview ──
+function syncLoginColor(field, val) {
+  if (field === 'bg') { document.getElementById('lc_bg_color').value = val; }
+  else { document.getElementById('lc_btn_color').value = val; }
+  updateLoginPreview();
+}
+function syncLoginColorText(field, val) {
+  const v = val.trim().startsWith('#') ? val.trim() : '#' + val.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+    if (field === 'bg') document.getElementById('lc_bg_picker').value = v;
+    else document.getElementById('lc_btn_picker').value = v;
+    updateLoginPreview();
+  }
+}
+function updateLoginPreview() {
+  const logo = document.getElementById('lc_logo').value;
+  const bg = document.getElementById('lc_bg_color').value || '#f4f4f5';
+  const btn = document.getElementById('lc_btn_color').value || '#16321f';
+  const texto = document.getElementById('lc_btn_texto').value || 'Ingresar';
+  document.getElementById('lp_wrap').style.background = bg;
+  const img = document.getElementById('lp_logo');
+  img.src = logo; img.style.display = logo ? 'inline' : 'none';
+  const b = document.getElementById('lp_btn');
+  b.style.background = btn; b.textContent = texto;
+}
+async function saveLoginConfig(e) {
+  e.preventDefault();
+  const body = {
+    logo_url: document.getElementById('lc_logo').value.trim(),
+    bg_color: document.getElementById('lc_bg_color').value.trim(),
+    btn_color: document.getElementById('lc_btn_color').value.trim(),
+    btn_texto: document.getElementById('lc_btn_texto').value.trim()
+  };
+  const r = await fetch('/api/admin/login-config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const msg = document.getElementById('lc_msg');
+  msg.textContent = r.ok ? '✓ Login actualizado.' : 'Error al guardar.';
+  msg.style.color = r.ok ? '#16321f' : '#a01818';
+}
+
+// ── Registro preview ──
+function syncRegBgColor(val) { document.getElementById('rc_bg_color').value = val; updateRegPreview(); }
+function syncRegBgColorText(val) {
+  const v = val.trim().startsWith('#') ? val.trim() : '#' + val.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) { document.getElementById('rc_bg_picker').value = v; updateRegPreview(); }
+}
+function syncRegColor(val) { document.getElementById('rc_btn_color').value = val; updateRegPreview(); }
+function syncRegColorText(val) {
+  const v = val.trim().startsWith('#') ? val.trim() : '#' + val.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) { document.getElementById('rc_btn_color_picker').value = v; updateRegPreview(); }
+}
 function updateRegPreview() {
   const logo = document.getElementById('rc_logo').value;
   const titulo = document.getElementById('rc_titulo').value;
   const sub = document.getElementById('rc_subtitulo').value;
+  const bg = document.getElementById('rc_bg_color').value || '#f4f4f5';
   const btnColor = document.getElementById('rc_btn_color').value || '#16321f';
   const btnTexto = document.getElementById('rc_btn_texto').value;
-  const showTel = document.getElementById('rc_telefono').checked;
-  const showNac = document.getElementById('rc_nacimiento').checked;
-  const showEmail = document.getElementById('rc_correo').checked;
+  const showRut    = document.getElementById('rc_rut').checked;
+  const showNombre = document.getElementById('rc_nombre').checked;
+  const showApell  = document.getElementById('rc_apellido').checked;
+  const showEmail  = document.getElementById('rc_correo').checked;
+  const showTel    = document.getElementById('rc_telefono').checked;
+  const showNac    = document.getElementById('rc_nacimiento').checked;
   const chk1 = document.getElementById('rc_chk1').value;
   const chk2 = document.getElementById('rc_chk2').value;
-  document.getElementById('rp_logo').src = logo;
-  document.getElementById('rp_logo').style.display = logo ? 'inline' : 'none';
+  document.getElementById('reg_preview').style.background = bg;
+  const img = document.getElementById('rp_logo');
+  img.src = logo; img.style.display = logo ? 'inline' : 'none';
   document.getElementById('rp_titulo').textContent = titulo;
   document.getElementById('rp_sub').textContent = sub;
-  document.getElementById('rp_tel_row').style.display = showTel ? 'block' : 'none';
-  document.getElementById('rp_nac_row').style.display = showNac ? 'block' : 'none';
-  document.getElementById('rp_email_row').style.display = showEmail ? 'block' : 'none';
-  document.getElementById('rp_chk1').textContent = chk1.slice(0, 60) + (chk1.length > 60 ? '...' : '');
-  document.getElementById('rp_chk2').textContent = chk2.slice(0, 60) + (chk2.length > 60 ? '...' : '');
+  document.getElementById('rp_rut_row').style.display     = showRut    ? 'block' : 'none';
+  document.getElementById('rp_nombre_row').style.display  = showNombre ? 'block' : 'none';
+  document.getElementById('rp_apell_row').style.display   = showApell  ? 'block' : 'none';
+  document.getElementById('rp_email_row').style.display   = showEmail  ? 'block' : 'none';
+  document.getElementById('rp_tel_row').style.display     = showTel    ? 'block' : 'none';
+  document.getElementById('rp_nac_row').style.display     = showNac    ? 'block' : 'none';
+  document.getElementById('rp_chk1').textContent = chk1.slice(0,55) + (chk1.length > 55 ? '...' : '');
+  document.getElementById('rp_chk2').textContent = chk2.slice(0,55) + (chk2.length > 55 ? '...' : '');
   const btn = document.getElementById('rp_btn');
-  btn.style.background = btnColor;
-  btn.textContent = btnTexto;
+  btn.style.background = btnColor; btn.textContent = btnTexto;
 }
-
 async function saveRegistroConfig(e) {
   e.preventDefault();
   const body = {
-    logo_url: document.getElementById('rc_logo').value.trim(),
-    titulo: document.getElementById('rc_titulo').value.trim(),
-    subtitulo: document.getElementById('rc_subtitulo').value.trim(),
-    btn_color: document.getElementById('rc_btn_color').value.trim(),
-    btn_texto: document.getElementById('rc_btn_texto').value.trim(),
+    logo_url:    document.getElementById('rc_logo').value.trim(),
+    titulo:      document.getElementById('rc_titulo').value.trim(),
+    subtitulo:   document.getElementById('rc_subtitulo').value.trim(),
+    bg_color:    document.getElementById('rc_bg_color').value.trim(),
+    btn_color:   document.getElementById('rc_btn_color').value.trim(),
+    btn_texto:   document.getElementById('rc_btn_texto').value.trim(),
+    campo_rut:      document.getElementById('rc_rut').checked ? 1 : 0,
+    campo_nombre:   document.getElementById('rc_nombre').checked ? 1 : 0,
+    campo_apellido: document.getElementById('rc_apellido').checked ? 1 : 0,
+    campo_correo:   document.getElementById('rc_correo').checked ? 1 : 0,
     campo_telefono: document.getElementById('rc_telefono').checked ? 1 : 0,
     campo_nacimiento: document.getElementById('rc_nacimiento').checked ? 1 : 0,
-    campo_correo: document.getElementById('rc_correo').checked ? 1 : 0,
-    chk1_texto: document.getElementById('rc_chk1').value.trim(),
-    chk2_texto: document.getElementById('rc_chk2').value.trim(),
-    tyc_texto: document.getElementById('rc_tyc').value.trim()
+    chk1_texto:  document.getElementById('rc_chk1').value.trim(),
+    chk2_texto:  document.getElementById('rc_chk2').value.trim()
   };
   const r = await fetch('/api/admin/registro-config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const msg = document.getElementById('rc_msg');
-  msg.textContent = r.ok ? '✓ Cambios guardados. El formulario de registro se actualiza inmediatamente.' : 'Error al guardar.';
+  msg.textContent = r.ok ? '✓ Registro actualizado.' : 'Error al guardar.';
   msg.style.color = r.ok ? '#16321f' : '#a01818';
+}
+
+// ── Modal TyC ──
+function showTycEditor() {
+  document.getElementById('tycModal').style.display = 'flex';
+}
+function closeTycModal() {
+  document.getElementById('tycModal').style.display = 'none';
+  document.getElementById('tyc_msg').textContent = '';
+}
+async function saveTyc() {
+  const tyc = document.getElementById('rc_tyc').value.trim();
+  const r = await fetch('/api/admin/registro-config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tyc_texto: tyc }) });
+  const msg = document.getElementById('tyc_msg');
+  msg.textContent = r.ok ? '✓ Términos guardados.' : 'Error al guardar.';
+  msg.style.color = r.ok ? '#16321f' : '#a01818';
+  if (r.ok) setTimeout(closeTycModal, 1200);
 }
 
 ${programs.map(p => `updatePreview(${p.id});`).join('\n')}
 loadCustomers();
+
+// ── Usuarios ──────────────────────────────────────────────
+async function loadUsers() {
+  const r = await fetch('/api/admin/users');
+  if (r.status === 401) { window.location.href = '/admin'; return; }
+  const rows = await r.json();
+  const tbody = document.getElementById('usersBody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;color:#999;">Sin usuarios.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(u => {
+    const roleBadge = u.role === 'admin'
+      ? '<span style="background:#16321f;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Admin</span>'
+      : '<span style="background:#888;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Cajero</span>';
+    const activeBadge = u.active
+      ? '<span style="color:#16321f;font-weight:600;">✓ Activo</span>'
+      : '<span style="color:#a01818;font-weight:600;">✗ Inactivo</span>';
+    const uJson = JSON.stringify(u).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return '<tr>' +
+      '<td>' + u.id + '</td>' +
+      '<td>' + u.name + '</td>' +
+      '<td><code>' + u.username + '</code></td>' +
+      '<td>' + roleBadge + '</td>' +
+      '<td>' + activeBadge + '</td>' +
+      '<td>' +
+        '<button class="actbtn" onclick=\'showEditUserModal(' + JSON.stringify(u) + ')\'>Editar</button>' +
+        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ',\'' + u.name.replace(/'/g,"\\'") + '\')">Contraseña</button>' +
+        (u.active
+          ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
+          : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>') +
+        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ',\'' + u.name.replace(/'/g,"\\'") + '\')">Eliminar</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function showCreateUserModal() {
+  var ov = document.createElement('div');
+  ov.id = 'userModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-sizing:border-box;';
+  var h = document.createElement('h3'); h.style.marginTop='0'; h.textContent='Nuevo usuario'; box.appendChild(h);
+  function field(lbl, id, type, ph) {
+    var l = document.createElement('label'); l.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; l.textContent=lbl; box.appendChild(l);
+    var inp = document.createElement('input'); inp.id=id; inp.type=type; inp.placeholder=ph;
+    inp.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:10px;'; box.appendChild(inp);
+  }
+  field('Nombre completo','um_name','text','Juan Pérez');
+  field('Usuario (para iniciar sesión)','um_user','text','tienda_2');
+  field('Contraseña','um_pwd','password','Mínimo 4 caracteres');
+  var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
+  var sel = document.createElement('select'); sel.id='um_role';
+  sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
+  [['cashier','Cajero'],['admin','Administrador']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; sel.appendChild(o); }); box.appendChild(sel);
+  var errDiv = document.createElement('div'); errDiv.id='um_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
+  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
+  var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Crear usuario'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=submitCreateUser; btnRow.appendChild(bOk);
+  var bCan = document.createElement('button'); bCan.type='button'; bCan.textContent='Cancelar'; bCan.style.cssText='flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;'; bCan.onclick=closeUserModal; btnRow.appendChild(bCan);
+  box.appendChild(btnRow); ov.appendChild(box); document.body.appendChild(ov);
+  document.getElementById('um_name').focus();
+}
+
+function showEditUserModal(u) {
+  var ov = document.createElement('div');
+  ov.id = 'userModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-sizing:border-box;';
+  var h = document.createElement('h3'); h.style.marginTop='0'; h.textContent='Editar usuario'; box.appendChild(h);
+  var infoDiv = document.createElement('p'); infoDiv.style.cssText='font-size:13px;color:#555;margin-bottom:12px;'; infoDiv.innerHTML='Usuario: <code>' + u.username + '</code>'; box.appendChild(infoDiv);
+  var nl = document.createElement('label'); nl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; nl.textContent='Nombre completo'; box.appendChild(nl);
+  var ninp = document.createElement('input'); ninp.id='em_name'; ninp.type='text'; ninp.value=u.name;
+  ninp.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:10px;'; box.appendChild(ninp);
+  var rl = document.createElement('label'); rl.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; rl.textContent='Rol'; box.appendChild(rl);
+  var sel = document.createElement('select'); sel.id='em_role';
+  sel.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:14px;';
+  [['cashier','Cajero'],['admin','Administrador']].forEach(function(op){ var o=document.createElement('option'); o.value=op[0]; o.textContent=op[1]; if(u.role===op[0]) o.selected=true; sel.appendChild(o); }); box.appendChild(sel);
+  var errDiv = document.createElement('div'); errDiv.id='em_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
+  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
+  var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Guardar'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=function(){ submitEditUser(u.id); }; btnRow.appendChild(bOk);
+  var bCan = document.createElement('button'); bCan.type='button'; bCan.textContent='Cancelar'; bCan.style.cssText='flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;'; bCan.onclick=closeUserModal; btnRow.appendChild(bCan);
+  box.appendChild(btnRow); ov.appendChild(box); document.body.appendChild(ov);
+}
+
+function showResetPwdModal(id, name) {
+  var ov = document.createElement('div');
+  ov.id = 'userModal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px;max-width:400px;width:100%;box-sizing:border-box;';
+  var h = document.createElement('h3'); h.style.marginTop='0'; h.textContent='Restablecer contraseña'; box.appendChild(h);
+  var info = document.createElement('p'); info.style.cssText='font-size:14px;color:#555;margin-bottom:14px;'; info.innerHTML='Usuario: <strong>' + name + '</strong>'; box.appendChild(info);
+  function field(lbl, id, ph) {
+    var l = document.createElement('label'); l.style.cssText='display:block;font-size:13px;font-weight:600;margin-bottom:4px;'; l.textContent=lbl; box.appendChild(l);
+    var inp = document.createElement('input'); inp.id=id; inp.type='password'; inp.placeholder=ph;
+    inp.style.cssText='width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;box-sizing:border-box;margin-bottom:10px;'; box.appendChild(inp);
+  }
+  field('Nueva contraseña','rp_pwd','Mínimo 4 caracteres');
+  field('Confirmar contraseña','rp_pwd2','Repite la contraseña');
+  var errDiv = document.createElement('div'); errDiv.id='rp_err'; errDiv.style.cssText='color:#a01818;font-size:13px;margin-bottom:10px;display:none;'; box.appendChild(errDiv);
+  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:8px;';
+  var bOk = document.createElement('button'); bOk.type='button'; bOk.textContent='Restablecer'; bOk.style.cssText='flex:1;padding:10px;background:#16321f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;'; bOk.onclick=function(){ submitResetPwd(id); }; btnRow.appendChild(bOk);
+  var bCan = document.createElement('button'); bCan.type='button'; bCan.textContent='Cancelar'; bCan.style.cssText='flex:1;padding:10px;background:#eee;color:#333;border:none;border-radius:6px;cursor:pointer;'; bCan.onclick=closeUserModal; btnRow.appendChild(bCan);
+  box.appendChild(btnRow); ov.appendChild(box); document.body.appendChild(ov);
+  document.getElementById('rp_pwd').focus();
+}
+
+function closeUserModal() { var el=document.getElementById('userModal'); if(el) el.remove(); }
+
+async function submitCreateUser() {
+  var err=document.getElementById('um_err'); err.style.display='none';
+  var body={ name: document.getElementById('um_name').value.trim(), username: document.getElementById('um_user').value.trim().toLowerCase(), password: document.getElementById('um_pwd').value, role: document.getElementById('um_role').value };
+  if (!body.name||!body.username||!body.password){ err.textContent='Completa todos los campos.'; err.style.display='block'; return; }
+  var r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var data=await r.json();
+  if(r.ok){ closeUserModal(); loadUsers(); } else { err.textContent=data.error||'Error al crear.'; err.style.display='block'; }
+}
+
+async function submitEditUser(id) {
+  var err=document.getElementById('em_err'); err.style.display='none';
+  var body={ name: document.getElementById('em_name').value.trim(), role: document.getElementById('em_role').value };
+  var r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var data=await r.json();
+  if(r.ok){ closeUserModal(); loadUsers(); } else { err.textContent=data.error||'Error al guardar.'; err.style.display='block'; }
+}
+
+async function submitResetPwd(id) {
+  var err=document.getElementById('rp_err'); err.style.display='none';
+  var pwd=document.getElementById('rp_pwd').value, pwd2=document.getElementById('rp_pwd2').value;
+  if(pwd!==pwd2){ err.textContent='Las contraseñas no coinciden.'; err.style.display='block'; return; }
+  if(pwd.length<4){ err.textContent='Mínimo 4 caracteres.'; err.style.display='block'; return; }
+  var r=await fetch('/api/admin/users/'+id+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+  var data=await r.json();
+  if(r.ok){ closeUserModal(); alert('✓ Contraseña restablecida. Las sesiones activas del usuario fueron cerradas.'); }
+  else { err.textContent=data.error||'Error.'; err.style.display='block'; }
+}
+
+async function toggleUser(id, active) {
+  var r=await fetch('/api/admin/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({active:active})});
+  if(r.ok) loadUsers(); else { var d=await r.json(); alert(d.error||'Error'); }
+}
+
+async function deleteUser(id, name) {
+  if(!confirm('¿Eliminar al usuario "'+name+'"? Esta acción no se puede deshacer.')) return;
+  var r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
+  var d=await r.json();
+  if(r.ok) loadUsers(); else alert(d.error||'Error al eliminar');
+}
 
 function showAddCustomerModal() {
   var ov = document.createElement('div');
@@ -1922,18 +2381,22 @@ function renderRegisterPage(req, res) {
   const subtitulo = cfg.subtitulo || 'Regístrate y acumula marcas con tus compras';
   const btnColor = cfg.btn_color || '#16321f';
   const btnTexto = cfg.btn_texto || 'Crear mi tarjeta';
-  const showTel = cfg.campo_telefono !== 0;
-  const showNac = cfg.campo_nacimiento !== 0;
-  const showEmail = cfg.campo_correo !== 0;
+  const showRut    = cfg.campo_rut !== 0;
+  const showNombre = cfg.campo_nombre !== 0;
+  const showApell  = cfg.campo_apellido !== 0;
+  const showEmail  = cfg.campo_correo !== 0;
+  const showTel    = cfg.campo_telefono !== 0;
+  const showNac    = cfg.campo_nacimiento !== 0;
   const chk1 = cfg.chk1_texto || 'He leído y acepto los Términos y Condiciones del Club de Fidelización GETit.';
   const chk2 = cfg.chk2_texto || 'Autorizo a GETit a usar mis datos personales para gestionar mi membresía y enviarme comunicaciones sobre ofertas, promociones y beneficios del club.';
+  const bgColor = cfg.bg_color || '#f4f4f5';
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Registro Club GETit</title>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:-apple-system,system-ui,sans-serif;background:#f4f4f5;margin:0;padding:20px;}
+  body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;}
   .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:16px;}
   .logo img{max-width:140px;max-height:80px;object-fit:contain;}
@@ -1959,28 +2422,28 @@ function renderRegisterPage(req, res) {
   <h2>${titulo}</h2>
   <p class="sub">${subtitulo}</p>
   <form id="form" autocomplete="off">
-    <label>RUT *</label>
-    <input type="text" name="rut" placeholder="12345678-5" oninput="onRutInput(event)" required>
-    <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>
+    ${showRut ? `<label>RUT</label>
+    <input type="text" name="rut" placeholder="12345678-5" oninput="onRutInput(event)">
+    <div class="hint">Sin puntos, con guión. Ej: 12345678-5</div>` : ''}
 
-    <label>Nombre *</label>
-    <input type="text" name="first_name" placeholder="Juan" required style="text-transform:uppercase;">
+    ${showNombre ? `<label>Nombre</label>
+    <input type="text" name="first_name" placeholder="Juan" style="text-transform:uppercase;">` : ''}
 
-    <label>Apellido *</label>
-    <input type="text" name="last_name" placeholder="Pérez" required style="text-transform:uppercase;">
+    ${showApell ? `<label>Apellido</label>
+    <input type="text" name="last_name" placeholder="Pérez" style="text-transform:uppercase;">` : ''}
 
-    ${showEmail ? `<label>Correo electrónico *</label>
-    <input type="email" name="email" placeholder="juan@correo.com" ${showEmail ? 'required' : ''}>` : ''}
+    ${showEmail ? `<label>Correo electrónico</label>
+    <input type="email" name="email" placeholder="juan@correo.com">` : ''}
 
-    ${showTel ? `<label>Teléfono *</label>
+    ${showTel ? `<label>Teléfono</label>
     <div class="phone-row">
       <span class="phone-prefix">+569</span>
-      <input type="tel" name="phone" placeholder="12345678" maxlength="8" inputmode="numeric" pattern="[0-9]{8}" required>
+      <input type="tel" name="phone" placeholder="12345678" maxlength="8" inputmode="numeric" pattern="[0-9]{8}">
     </div>
     <div class="hint">8 dígitos. Ej: 12345678</div>` : ''}
 
-    ${showNac ? `<label>Fecha de nacimiento *</label>
-    <input type="date" name="birth_date" required>` : ''}
+    ${showNac ? `<label>Fecha de nacimiento</label>
+    <input type="date" name="birth_date">` : ''}
 
     <div class="check-group">
       <label class="check-item">
@@ -2015,14 +2478,20 @@ document.getElementById('form').addEventListener('submit', async (e) => {
     return;
   }
 
-  const rutRaw = f.rut.value.trim();
-  const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
-  const rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
+  // RUT: si el campo existe lo usa, si no genera uno temporal
+  let rut;
+  if (f.rut) {
+    const rutRaw = f.rut.value.trim();
+    const rutDigits = rutRaw.replace(/[^0-9kK]/gi, '');
+    rut = rutDigits.length >= 2 ? rutDigits.slice(0,-1) + '-' + rutDigits.slice(-1).toUpperCase() : rutRaw;
+  } else {
+    rut = 'TEMP-' + Date.now();
+  }
 
-  const phoneInput = f.phone;
-  if (phoneInput) {
-    const phone = phoneInput.value.trim();
-    if (phone.length !== 8 || !/^[0-9]{8}$/.test(phone)) {
+  // Teléfono: validar solo si el campo existe
+  if (f.phone) {
+    const phone = f.phone.value.trim();
+    if (phone && (phone.length !== 8 || !/^[0-9]{8}$/.test(phone))) {
       showError('El teléfono debe tener exactamente 8 dígitos.');
       return;
     }
@@ -2032,15 +2501,16 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   div.textContent = 'Registrando...';
   document.getElementById('submitBtn').disabled = true;
 
+  const ts = Date.now();
   const body = {
     rut,
-    first_name: f.first_name.value.trim(),
-    last_name: f.last_name.value.trim(),
-    birth_date: f.birth_date ? f.birth_date.value : '',
-    email: f.email ? f.email.value.trim() : rut.replace(/[^0-9kK]/g,'').toLowerCase() + '@getit.cl',
+    first_name: f.first_name ? f.first_name.value.trim() || 'Cliente' : 'Cliente',
+    last_name:  f.last_name  ? f.last_name.value.trim()  || '-'      : '-',
+    birth_date: f.birth_date ? f.birth_date.value : '2000-01-01',
+    email:      f.email      ? f.email.value.trim()       : (ts + '@getit.cl'),
     marcas: 0
   };
-  if (f.phone) body.whatsapp_number = '+569' + f.phone.value.trim();
+  if (f.phone && f.phone.value.trim()) body.whatsapp_number = '+569' + f.phone.value.trim();
 
   const r = await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await r.json();
@@ -2067,7 +2537,7 @@ async function renderCajaPage(req, res) {
   const staff = getAuthenticatedStaff(req);
 
   if (!staff) {
-    return renderLoginPage(res, '/caja', 'Acceso de cajero');
+    res.writeHead(302, { Location: '/login' }); return res.end();
   }
 
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -2508,8 +2978,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return getProgram(req, res, pathName.split('/')[4]);
     if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/programs\/\d+$/)) return await updateProgramDesign(req, res, pathName.split('/')[4]);
 
+    if (req.method === 'GET' && pathName === '/api/admin/users') return listUsers(req, res);
+    if (req.method === 'POST' && pathName === '/api/admin/users') return await createUser(req, res);
+    if (req.method === 'PUT' && pathName.match(/^\/api\/admin\/users\/\d+$/)) return await updateUser(req, res, pathName.split('/')[4]);
+    if (req.method === 'POST' && pathName.match(/^\/api\/admin\/users\/\d+\/reset-password$/)) return await resetUserPassword(req, res, pathName.split('/')[4]);
+    if (req.method === 'DELETE' && pathName.match(/^\/api\/admin\/users\/\d+$/)) return deleteUser(req, res, pathName.split('/')[4]);
     if (req.method === 'GET' && pathName === '/api/admin/registro-config') return getRegistroConfig(req, res);
     if (req.method === 'PUT' && pathName === '/api/admin/registro-config') return await updateRegistroConfig(req, res);
+    if (req.method === 'GET' && pathName === '/api/admin/login-config') return getLoginConfig(req, res);
+    if (req.method === 'PUT' && pathName === '/api/admin/login-config') return await updateLoginConfig(req, res);
     if (req.method === 'GET' && pathName === '/terminos') return renderTerminos(req, res);
     sendJSON(res, 404, { error: 'Ruta no encontrada' });
   } catch (err) {
