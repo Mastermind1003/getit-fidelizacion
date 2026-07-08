@@ -31,7 +31,6 @@ function isValidRut(rut) {
 
 
 
-
 const DB_FILE_PATH = path.join(__dirname, 'loyalty.db');
 const db = new DatabaseSync(DB_FILE_PATH);
 
@@ -1661,13 +1660,13 @@ function switchAdminTab(tab) {
 
 async function logout() {
   await fetch('/api/auth/logout', { method:'POST' });
-  window.location.href = '/admin';
+  window.location.href = '/login';
 }
 
 // ── Clientes ──────────────────────────────────────────────
 async function loadCustomers() {
   const r = await fetch('/api/admin/customers');
-  if (r.status === 401) { window.location.href = '/admin'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   const rows = await r.json();
   const tbody = document.getElementById('custBody');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" style="padding:16px;color:#999;">Sin clientes registrados todavía.</td></tr>'; return; }
@@ -2000,12 +1999,18 @@ ${programs.map(p => `updatePreview(${p.id});`).join('\n')}
 loadCustomers();
 
 // ── Usuarios ──────────────────────────────────────────────
+// ── Usuarios ──────────────────────────────────────────────
 async function loadUsers() {
   const r = await fetch('/api/admin/users');
-  if (r.status === 401) { window.location.href = '/admin'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   const rows = await r.json();
   const tbody = document.getElementById('usersBody');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;color:#999;">Sin usuarios.</td></tr>'; return; }
+
+  // Guardar en mapa global para evitar JSON en atributos onclick
+  window._usersMap = {};
+  rows.forEach(u => { window._usersMap[u.id] = u; });
+
   tbody.innerHTML = rows.map(u => {
     const roleBadge = u.role === 'admin'
       ? '<span style="background:#16321f;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;">Admin</span>'
@@ -2013,7 +2018,9 @@ async function loadUsers() {
     const activeBadge = u.active
       ? '<span style="color:#16321f;font-weight:600;">✓ Activo</span>'
       : '<span style="color:#a01818;font-weight:600;">✗ Inactivo</span>';
-    const uJson = JSON.stringify(u).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const toggleBtn = u.active
+      ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
+      : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>';
     return '<tr>' +
       '<td>' + u.id + '</td>' +
       '<td>' + u.name + '</td>' +
@@ -2021,16 +2028,15 @@ async function loadUsers() {
       '<td>' + roleBadge + '</td>' +
       '<td>' + activeBadge + '</td>' +
       '<td>' +
-        '<button class="actbtn" onclick=\'showEditUserModal(' + JSON.stringify(u) + ')\'>Editar</button>' +
-        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ',\'' + u.name.replace(/'/g,"\\'") + '\')">Contraseña</button>' +
-        (u.active
-          ? '<button class="actbtn" onclick="toggleUser(' + u.id + ',0)">Desactivar</button>'
-          : '<button class="actbtn" onclick="toggleUser(' + u.id + ',1)">Activar</button>') +
-        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ',\'' + u.name.replace(/'/g,"\\'") + '\')">Eliminar</button>' +
+        '<button class="actbtn" onclick="showEditUserModal(' + u.id + ')">Editar</button>' +
+        '<button class="actbtn" onclick="showResetPwdModal(' + u.id + ')">Contraseña</button>' +
+        toggleBtn +
+        '<button class="actbtn delbtn" onclick="deleteUser(' + u.id + ')">Eliminar</button>' +
       '</td>' +
     '</tr>';
   }).join('');
 }
+
 
 function showCreateUserModal() {
   var ov = document.createElement('div');
@@ -2059,7 +2065,9 @@ function showCreateUserModal() {
   document.getElementById('um_name').focus();
 }
 
-function showEditUserModal(u) {
+function showEditUserModal(id) {
+  var u = window._usersMap[id];
+  if (!u) return;
   var ov = document.createElement('div');
   ov.id = 'userModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
@@ -2081,7 +2089,8 @@ function showEditUserModal(u) {
   box.appendChild(btnRow); ov.appendChild(box); document.body.appendChild(ov);
 }
 
-function showResetPwdModal(id, name) {
+function showResetPwdModal(id) {
+  var name = (window._usersMap[id] || {}).name || 'Usuario';
   var ov = document.createElement('div');
   ov.id = 'userModal';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;box-sizing:border-box;';
@@ -2139,7 +2148,8 @@ async function toggleUser(id, active) {
   if(r.ok) loadUsers(); else { var d=await r.json(); alert(d.error||'Error'); }
 }
 
-async function deleteUser(id, name) {
+async function deleteUser(id) {
+  var name = (window._usersMap[id] || {}).name || 'este usuario';
   if(!confirm('¿Eliminar al usuario "'+name+'"? Esta acción no se puede deshacer.')) return;
   var r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
   var d=await r.json();
@@ -2642,7 +2652,7 @@ function switchTab(tab) {
 
 async function logout() {
   await fetch('/api/auth/logout', { method:'POST' });
-  window.location.href = '/caja';
+  window.location.href = '/login';
 }
 
 function showCustomer(data) {
@@ -2669,7 +2679,7 @@ document.getElementById('searchFormRut').addEventListener('submit', async (e) =>
   const rut = rutDigitsC.length >= 2 ? rutDigitsC.slice(0,-1) + '-' + rutDigitsC.slice(-1).toUpperCase() : rutRawC;
   const r = await fetch('/api/customers/by-rut/' + encodeURIComponent(rut));
   const data = await r.json();
-  if (r.status === 401) { window.location.href = '/caja'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   r.ok ? showCustomer(data) : showSearchError(data);
 });
 
@@ -2678,7 +2688,7 @@ document.getElementById('searchFormCode').addEventListener('submit', async (e) =
   const code = e.target.code.value.trim();
   const r = await fetch('/api/customers/by-code/' + encodeURIComponent(code));
   const data = await r.json();
-  if (r.status === 401) { window.location.href = '/caja'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   r.ok ? showCustomer(data) : showSearchError(data);
 });
 
@@ -2693,7 +2703,7 @@ document.getElementById('purchaseForm').addEventListener('submit', async (e) => 
   const r = await fetch('/api/purchases', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const data = await r.json();
   const div = document.getElementById('purchaseResult');
-  if (r.status === 401) { window.location.href = '/caja'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   if (r.ok) {
     if (data.card_status === 'completed') {
       // Premio disponible: mostrar aviso pero no ocultar aún
@@ -2782,7 +2792,7 @@ async function confirmRedeem() {
   const r = await fetch('/api/cards/' + currentToken + '/redeem', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rut }) });
   const data = await r.json();
   const div = document.getElementById('purchaseResult');
-  if (r.status === 401) { window.location.href = '/caja'; return; }
+  if (r.status === 401) { window.location.href = '/login'; return; }
   if (r.ok) {
     document.getElementById('redeemOverlay').remove();
     div.className = 'result ok';
