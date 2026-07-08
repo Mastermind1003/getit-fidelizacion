@@ -1569,7 +1569,7 @@ function renderAdminPage(req, res) {
     <div class="panel" style="margin-bottom:12px;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <button type="button" id="btnEdLogin" onclick="showIface('login')" style="flex:1;background:#16321f;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🔐 Editar Login</button>
-        <button type="button" id="btnEdDiseno" onclick="showIface('diseno')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🎨 Diseño de tarjeta</button>
+        <button type="button" id="btnEdDiseno" onclick="switchAdminTab('diseno')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">🎨 Diseño de tarjeta</button>
         <button type="button" id="btnEdRegistro" onclick="showIface('registro')" style="flex:1;background:#ddd;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;font-weight:600;">📋 Editar Registro</button>
       </div>
     </div>
