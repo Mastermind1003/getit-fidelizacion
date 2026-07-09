@@ -40,7 +40,8 @@ function render(cfg = {}) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;color:${textColor};}
   .wrap{max-width:680px;margin:0 auto;background:${cardColor};border-radius:12px;padding:32px 28px;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
   .logo{text-align:center;margin-bottom:20px;}
-  .logo img{max-width:${logoWidth}px;object-fit:contain;}
+  .logo .logo-badge{display:inline-flex;align-items:center;justify-content:center;background:#16321f;border-radius:16px;padding:14px 22px;}
+  .logo img{max-width:${logoWidth}px;object-fit:contain;display:block;}
   h1{font-size:20px;color:${titleColor};margin-bottom:4px;}
   .meta{font-size:12px;color:#888;margin-bottom:28px;}
   h2{font-size:15px;color:${h2Color};margin-top:28px;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;}
@@ -51,7 +52,7 @@ function render(cfg = {}) {
 </style></head>
 <body>
 <div class="wrap">
-  <div class="logo"><img src="${logoUrl}" alt="Get it" onerror="this.style.display='none'"></div>
+  <div class="logo"><span class="logo-badge"><img src="${logoUrl}" alt="Get it" onerror="this.style.display='none'"></span></div>
   <h1>${titulo}</h1>
   <div class="meta">Última actualización: ${fechaActualizacion}</div>
   <div class="empresa">

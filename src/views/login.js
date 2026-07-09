@@ -16,7 +16,8 @@ function render(cfg = {}) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;display:flex;min-height:100vh;align-items:center;justify-content:center;}
   .panel{max-width:380px;width:100%;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:20px;}
-  .logo img{max-width:${logoWidth}px;max-height:140px;object-fit:contain;}
+  .logo .logo-badge{display:inline-flex;align-items:center;justify-content:center;background:#16321f;border-radius:16px;padding:16px 24px;}
+  .logo img{max-width:${logoWidth}px;max-height:140px;object-fit:contain;display:block;}
   h2{margin-top:0;text-align:center;color:#333;}
   label{display:block;font-size:13px;font-weight:600;margin-top:14px;margin-bottom:4px;color:#333;}
   input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
@@ -29,7 +30,7 @@ function render(cfg = {}) {
 </style></head>
 <body>
 <div class="panel">
-  <div class="logo"><img src="${logoUrl}" alt="GETit" onerror="this.style.display='none'"></div>
+  <div class="logo"><span class="logo-badge"><img src="${logoUrl}" alt="GETit" onerror="this.style.display='none'"></span></div>
   <h2>Acceso al sistema</h2>
   <form id="loginForm">
     <label>Usuario</label>
