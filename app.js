@@ -357,7 +357,7 @@ if (branchCount === 0) {
 
 // Crea los usuarios de acceso si todavía no existen (no depende de si hay sucursales o no,
 // así una base de datos ya existente igual recibe los usuarios nuevos al actualizar el sistema)
-function ensureStaffUser(username, password, name, role) {
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); } function ensureStaffUser(username, password, name, role) {
   try {
     const exists = db.prepare('SELECT 1 FROM staff_users WHERE username = ?').get(username);
     if (exists) { console.log(`Usuario "${username}" ya existe, no se recrea.`); return; }
@@ -445,10 +445,10 @@ function getAuthenticatedStaff(req) {
   return db.prepare('SELECT id, name, email, role, branch_id FROM staff_users WHERE id = ? AND active = 1').get(session.staff_id);
 }
 
-async function loginStaff(req, res) {
+const __loginAttempts = new Map(); function checkLoginRateLimit(key) { const now = Date.now(); const rec = __loginAttempts.get(key); if (!rec || now - rec.first > 15*60*1000) { __loginAttempts.set(key, { count: 1, first: now }); return true; } if (rec.count >= 5) return false; rec.count++; return true; } async function loginStaff(req, res) {
   const body = await readBody(req);
   const { username, password } = body;
-  if (!username || !password) return sendJSON(res, 400, { error: 'Usuario y contraseña son obligatorios.' });
+  if (!username || !password) return sendJSON(res, 400, { error: 'Usuario y contraseña son obligatorios.' }); const __rlKey = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') + ':' + username.toLowerCase(); if (!checkLoginRateLimit(__rlKey)) return sendJSON(res, 429, { error: 'Demasiados intentos fallidos. Intenta nuevamente en unos minutos.' });
 
   const staff = db.prepare('SELECT * FROM staff_users WHERE LOWER(username) = LOWER(?) AND active = 1').get(username.trim());
   if (!staff || !verifyPassword(password, staff.password_hash)) {
@@ -459,7 +459,7 @@ async function loginStaff(req, res) {
   const expiresAt = Date.now() + SESSION_DURATION_MS;
   db.prepare('INSERT INTO sessions (token, staff_id, expires_at) VALUES (?,?,?)').run(token, staff.id, expiresAt);
 
-  res.setHeader('Set-Cookie', `session_token=${token}; HttpOnly; Path=/; Max-Age=${SESSION_DURATION_MS / 1000}; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `session_token=${token}; HttpOnly; Secure; Path=/; Max-Age=${SESSION_DURATION_MS / 1000}; SameSite=Lax`);
   sendJSON(res, 200, { ok: true, staff: { id: staff.id, name: staff.name, role: staff.role } });
 }
 
@@ -1233,8 +1233,8 @@ async function createUser(req, res) {
   if (!validRoles.includes(role)) {
     return sendJSON(res, 400, { error: 'Rol inválido. Debe ser cashier, admin o superadmin.' });
   }
-  if (role === 'superadmin' && staff.role !== 'superadmin') { return sendJSON(res, 403, { error: 'Solo el administrador principal puede crear un Super Admin.' }); } if (password.length < 4) {
-    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
+  if (role === 'superadmin' && staff.role !== 'superadmin') { return sendJSON(res, 403, { error: 'Solo el administrador principal puede crear un Super Admin.' }); } if (password.length < 8) {
+    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 8 caracteres.' });
   }
   try {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -1257,7 +1257,7 @@ async function resetUserPassword(req, res, id) {
   const body = await readBody(req);
   const { password } = body;
   if (!password || password.length < 4) {
-    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
+    return sendJSON(res, 400, { error: 'La contraseña debe tener al menos 8 caracteres.' });
   }
   const target = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id);
   if (!target) return sendJSON(res, 404, { error: 'Usuario no encontrado.' });
@@ -1863,7 +1863,7 @@ async function logout() {
 }
 
 // ── Clientes ──────────────────────────────────────────────
-async function loadCustomers() {
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); } async function loadCustomers() {
   const r = await fetch('/api/admin/customers');
   if (r.status === 401) { window.location.href = '/login'; return; }
   const rows = await r.json();
@@ -1878,10 +1878,10 @@ async function loadCustomers() {
   tbody.innerHTML = rows.map(c => {
     const boletas = purchaseMap[c.id] || [];
     return '<tr>' +
-      '<td>' + c.rut + '</td>' +
-      '<td>' + c.first_name + ' ' + c.last_name + '</td>' +
+      '<td>' + escapeHtml(c.rut) + '</td>' +
+      '<td>' + escapeHtml(c.first_name) + ' ' + escapeHtml(c.last_name) + '</td>' +
       '<td>' + (c.birth_date ? c.birth_date.split('-').reverse().join('-') : '—') + '</td>' +
-      '<td>' + (c.email || '') + '</td>' +
+      '<td>' + escapeHtml(c.email || '') + '</td>' +
       '<td style="text-align:center;">' + boletas.length + '</td>' +
       '<td>' + (c.current_stamps != null ? c.current_stamps + '/' + (c.required_stamps||10) : '0/10') + '</td>' +
       '<td style="text-align:center;">' + Math.floor(boletas.length / (c.required_stamps||10)) + '</td>' +
@@ -1904,7 +1904,7 @@ async function showDetail(id) {
   const bestHour = d.hourPattern[0] ? d.hourPattern[0].hora_del_dia + ':00 (' + d.hourPattern[0].veces + ' veces)' : '—';
   const bestDay  = d.dayPattern[0]  ? DAYS[d.dayPattern[0].dow] + ' (' + d.dayPattern[0].veces + ' veces)' : '—';
   panel.innerHTML =
-    '<h3>' + d.customer.first_name + ' ' + d.customer.last_name + ' (' + d.customer.rut + ')</h3>' +
+    '<h3>' + escapeHtml(d.customer.first_name) + ' ' + escapeHtml(d.customer.last_name) + ' (' + escapeHtml(d.customer.rut) + ')</h3>' +
     '<button type="button" onclick="closeDetail()" style="width:auto;background:#888;margin-bottom:14px;">Cerrar</button>' +
 
     '<h4 style="margin:0 0 8px;">Boletas registradas</h4>' +
@@ -2619,7 +2619,7 @@ async function renderCardPage(req, res, token) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${card.program_name} - ${card.first_name}</title>
+<title>${escapeHtml(card.program_name)} - ${escapeHtml(card.first_name)}</title>
 <link rel="manifest" href="/manifest.json">
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background:${card.secondary_color}; color:#fff; margin:0; padding:0; display:flex; justify-content:center; }
@@ -2641,7 +2641,7 @@ async function renderCardPage(req, res, token) {
   <div class="card">
     <div class="logo-row">${logoHtml}</div>
     <div class="brand">${card.program_name}</div>
-    <div class="name">${card.first_name} ${card.last_name}</div>
+    <div class="name">${escapeHtml(card.first_name)} ${escapeHtml(card.last_name)}</div>
     <div class="qr">${qrHtml}</div>
     <div style="font-size:13px;letter-spacing:1px;opacity:0.85;margin-bottom:18px;">Código: <strong>${card.short_code || '—'}</strong></div>
     <div class="grid">${grid}</div>
