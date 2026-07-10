@@ -1,4 +1,4 @@
-# Sistema de Fidelización Digital — GETit
+# Sistema de Fidelización Digital — Get it
 
 Sistema de tarjetas de fidelización digital con panel admin, pantalla de caja, dashboard de análisis y cruce de ventas.
 
