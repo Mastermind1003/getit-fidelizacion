@@ -26,7 +26,7 @@ function render(cfg = {}) {
   body{font-family:-apple-system,system-ui,sans-serif;background:${bgColor};margin:0;padding:20px;}
   .panel{max-width:440px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
   .logo{text-align:center;margin-bottom:16px;}
-  .logo .logo-badge{display:inline-flex;align-items:center;justify-content:center;background:#16321f;border-radius:16px;padding:16px 24px;}
+  .logo .logo-badge{}
   .logo img{max-width:${logoWidth}px;max-height:150px;object-fit:contain;display:block;}
   h2{margin-top:0;font-size:20px;text-align:center;color:#16321f;}
   p.sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px;}
